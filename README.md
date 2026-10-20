@@ -85,13 +85,15 @@ The engraving template is a style reference; its AI-generated generic preview is
 
 ## Template catalog
 
-The catalog includes 24 templates, with 16 cover choices and 24 illustration styles. They cover conceptual typography, paper, watercolor, diagrams, cinematic scenes, lifestyle photography, ink, still life, human narrative, opinion collage and literary painting. Covers and body illustrations have separate prompts, independent dimensions and saved custom overrides. The source link appears in the template library when selected. Body previews are labeled **layout studies**; the seven sampled cover directions use actual generated-cover previews.
+The catalog includes 38 templates, with 30 cover choices and 38 illustration styles. They cover conceptual typography, paper, watercolor, diagrams, cinematic scenes, lifestyle photography, ink, still life, human narrative, opinion collage and literary painting. Covers and body illustrations have separate prompts, independent dimensions and saved custom overrides. The source link appears in the template library when selected. Body previews are labeled **layout studies**; the seven sampled cover directions use actual generated-cover previews.
 
-The original category recipes are informed by a popular GPT Image repository's documented categories and production rules. The four newer editorial directions use independently written rules informed by real publication-design references. Repository stars and article views are not per-template use counts or proof of a cover's causal effect. No runtime reference-site request or fixed image provider is added. See [template sources and attribution](THIRD_PARTY_NOTICES.md#awesome-gpt-image-template-research) and the source links in [the catalog](src/templates/catalog.js). The expanded catalog is packaged in version 0.10.2.
+The original category recipes are informed by a popular GPT Image repository's documented categories and production rules. The four newer editorial directions use independently written rules informed by real publication-design references. Repository stars and article views are not per-template use counts or proof of a cover's causal effect. No runtime reference-site request or fixed image provider is added. See [template sources and attribution](THIRD_PARTY_NOTICES.md#awesome-gpt-image-template-research) and the source links in [the catalog](src/templates/catalog.js). The initial category expansion shipped in version 0.10.2; the thirty-cover expansion below is currently unreleased.
 
 ## Changes
 
 ### Unreleased
+
+- Expanded the default cover library to **30 choices** (38 illustration styles) after inspecting seven GitHub projects and the Canva, Kittl, Fotor, Adobe Express and Playground template collections. Fourteen new directions have independently written prompts, different sample titles, original offline SVG examples and per-template reference links. Sources, checked star counts, licenses, inspection limits and selection reasons are recorded in [template-research.json](assets/template-research.json).
 
 - Expanded covers from 10 to 16 choices with six original typography directions: resource list, Swiss grid, magazine headline, vintage newsprint, duotone screenprint and archive papers. Each uses a distinct fictional sample title and is labeled **Typography example**, separate from the seven generated-image previews. Runtime prompts use the selected article, never the sample copy or numbers.
 - Replaced the current-template dropdown at the bottom with a searchable management list. Edit names, descriptions and prompts; create or copy templates; hide/show styles; reset built-in edits; delete and restore custom templates. Hidden active templates remain usable, and the blank template stays first. Management edits preserve the active selection.
@@ -137,3 +139,27 @@ The cover library includes the existing blank, engraving and neon layouts plus s
 The preview correction replaces six comparison images from 0.10.2, retaining one product/design example and the established typography direction. Original generation briefs and reference versions are recorded in [preview-samples.json](assets/preview-samples.json). It changes demonstration images, not runtime template instructions or user content.
 
 Process, comparison, scale and other diagram recipes remain available in the article-illustration library. Existing active choices and saved user customizations remain accessible. A sample demonstrates one generated result, not a guarantee that every model produces an identical image. Current reusable prompts are in [the catalog](src/templates/catalog.js), with offline samples in `assets/` and regression coverage in `tests/`.
+
+
+## Thirty cover directions
+
+The cover library now has **30 selectable templates**; the eight body-only diagrams are excluded from that count. Blank stays first. The following fourteen additions build on the existing sixteen covers. These are reusable visual systems, with independent cover and body prompts, rather than fixed article titles or palette-only variants.
+
+| New direction | Demonstration title | Method reference |
+| --- | --- | --- |
+| Split photograph | 普通人的一天 | Canva blog graphics; Fotor banners |
+| Cutout portrait | 找到自己的声音 | ZeroLu magazine portrait; Canva |
+| Monochrome frame | 城市很大，也需要自己的角落 | Fotor black-and-white blog covers |
+| Film sequence | 带着好奇心，去一座陌生的城市 | YouMind travel editorial; Fotor |
+| Torn-paper journal | 把零碎日常，拼成自己的生活 | PicoTrex collage; YouMind |
+| Bauhaus | 让灵感，有地方发生 | Kittl Bauhaus posters |
+| Brutalist type | 别等完美，先开始 | Kittl brutalist posters |
+| Vintage travel | 沿着山路，找回周末 | Playground vintage posters |
+| Cyanotype | 观察一片叶子，重新认识自然 | Original contact-print direction extending GPT Image subject/whitespace research |
+| Ink double exposure | 山水之间，看见另一种生活 | GPT Image ink double-exposure category |
+| Miniature scene | 小小书店，装得下一个世界 | ZeroLu narrative diorama category |
+| Matte gradient | 工具在变，创造力走向哪里 | Adobe Express banner hierarchy |
+| Motion moment | 迈出第一步，比准备更重要 | GPT Image sports campaign category |
+| Exhibition catalog | 换个角度，重新看一件作品 | Kittl art-show posters; editorial hierarchy research |
+
+The new offline previews are explicitly labeled **Typography example**. They show composition and headline hierarchy; they are not copied website templates, third-party photographs or proof that an image model reproduced the sample. The selected article supplies the actual subject, exact title and supported facts. A verified number is required before a numeric cover can emphasize it, and title-free output takes precedence over every style rule. No website login, runtime reference-site fetch, bundled editor dependency or font download was added.

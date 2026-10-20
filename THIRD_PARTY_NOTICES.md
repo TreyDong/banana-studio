@@ -65,3 +65,24 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+## Thirty-cover research expansion — 2026-10-20
+
+The fourteen new directions in `src/templates/researched.js` and their SVG typography examples are independently authored. Public projects and template websites were inspected for visual methods, not imported as code or artwork. No repository case prompt is reproduced verbatim, and no community image, website template file, stock photo, font, publication identity or branded finished design is bundled. The article-specific planning, typography, text-free and dimension rules were rewritten for Banana Design. This is not an endorsed integration with any reference service.
+
+The checked GitHub repository snapshots are recorded in `assets/template-research.json`:
+
+| Research project | Stars checked | Repository license | Inspected method |
+| --- | ---: | --- | --- |
+| freestylefly/awesome-gpt-image-2 | 34,747 | MIT, full notice retained above | Poster hierarchy, action, ink double exposure, subject and whitespace |
+| op7418/guizang-ppt-skill | 28,264 | AGPL-3.0 | Editorial hierarchy and cover proportions; no code, theme or asset incorporated |
+| PicoTrex/Awesome-Nano-Banana-images | 23,914 | Apache-2.0 | Collage and coherent scene construction; no code, prompt text or community artwork incorporated |
+| YouMind-OpenLab/awesome-nano-banana-pro-prompts | 13,637 | CC-BY-4.0 | Travel editorial, typography and ink-zine categories; no verbatim case prompt or image incorporated |
+| ZeroLu/awesome-nanobanana-pro | 10,357 | MIT | Portrait, photo-book, diorama, magazine and scrapbook categories; no verbatim case prompt or image incorporated |
+| ikuaitu/vue-fabric-editor | 7,999 | MIT | Editor/template workflow research; no runtime dependency or paid-template inventory incorporated |
+| dromara/yft-design | 1,664 | MIT | Canvas editor research; no runtime dependency or template artwork incorporated |
+
+The previously retained MIT notice covers the existing adapted freestylefly template research. Repository licenses do not establish rights to every linked third-party community work. YouMind OpenLab's collection is copyright (c) 2025 YouMind OpenLab under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); original case creators relevant to the research include lovimg_com (travel editorial), Gadgetify (typographic emergence) and Zayan (ink zine). PicoTrex credits tetumemo for its fashion collage case. ZeroLu credits NanoBanana for its magazine portrait and 歸藏 / op7418 for its narrative diorama. These credits identify the inspected public sources; Banana Design's new examples and rules change the topic, composition, typography, ratios and article-evidence behavior and contain none of those creators' images or literal prompt passages.
+
+Website research covered [Canva blog graphics](https://www.canva.com/blog-graphics/templates/), [Kittl posters](https://www.kittl.com/templates/posters) and its Bauhaus, brutalist and art-show categories, [Fotor blog banners](https://www.fotor.com/blog-banner/templates/), [Adobe Express banners](https://www.adobe.com/express/templates/banner), and [Playground vintage posters](https://playgroundai.com/templates/s/vintage-poster). These sites' proprietary assets remain with their respective owners. Source links are references, not permission to redistribute their templates. Gaoding and Chuangkit public category descriptions were also screened; unavailable live galleries were not used as evidence for any unseen design. Specific inspection limits are recorded in the research JSON. Star counts are dated repository snapshots, not per-template ratings, usage or performance claims.

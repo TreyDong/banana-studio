@@ -44,8 +44,10 @@ const DIRECTIONS = [
   }
 ];
 const SHARED = '从当前文章提炼有依据的观点、主体与关系；用户的画幅、风格和文字开关优先。一次只构思一张；多个候选更换视觉概念，不能拼成多张。示例仅展示排版，示例标题、数字、物件与配色不自动带入。不得编造事实、收益、排名或引语。';
-const EDITORIAL_TEMPLATES = DIRECTIONS.map(direction => ({
+function createEditorialTemplate(direction) { return ({
   id: direction.id, name: direction.name, description: direction.description, coverReady: true,
+  ...(direction.sourceUrl ? { sourceUrl: direction.sourceUrl, sourceLabel: direction.sourceLabel } : {}),
+  ...(direction.sampleTitle ? { sampleTitle: direction.sampleTitle, researchSourceIds: direction.researchSourceIds } : {}),
   titleTreatment: 'adaptive', coverPreviewSvg: direction.preview, coverPreviewKind: 'typeset-example',
   previewSvg: example('#f3efe5', `<path d="M160 124h160v130H160zM580 124h160v130H580z" stroke="#302e29" stroke-width="3" fill="none"/><path d="M365 190h167m-19-15 19 15-19 15" fill="none" stroke="#ac563c" stroke-width="5"/>${text(42,352,20,'LAYOUT STUDY / 构图示意 · 非生成效果','#777064',500)}`),
   planningPrompt: SHARED + direction.planning + '仅在要求文字时使用用户完整标题；不得虚构副标题。用英文描述当前这一张的主体、构图和视觉处理。',
@@ -53,5 +55,6 @@ const EDITORIAL_TEMPLATES = DIRECTIONS.map(direction => ({
   figurePlanningPrompt: SHARED + direction.planning + '当前任务是正文段落配图，重用色彩与材质，不复刻封面标题或清单版式。用具体场景或清晰关系帮助理解段落，只保留明确要求且有依据的短标签。',
   figurePrompt: 'Create one article-body illustration.\nCreative brief: {concept}\n' + direction.art + '\nUse the visual palette, material and print technique only; replace cover headline, list and poster hierarchy with a clear article-specific scene or relationship.\nCanvas: {width} x {height} px, aspect ratio {ratio}, with safe margins.\n{text_rule}\nNo cover headline, invented metrics, bibliography, logos or watermark.',
   defaults: { textLevel: 'title' }
-}));
-module.exports = { EDITORIAL_TEMPLATES };
+}); }
+const EDITORIAL_TEMPLATES = DIRECTIONS.map(createEditorialTemplate);
+module.exports = { EDITORIAL_TEMPLATES, createEditorialTemplate };

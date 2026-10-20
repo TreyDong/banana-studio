@@ -131,7 +131,7 @@ test('template dialogs preserve the host keyboard scope when opened for covers o
 
 test('new article recipes render chosen dimensions and keep cover titles out of body illustrations',()=>{
   const {EXTRA_TEMPLATES}=require('../src/templates/catalog.js');
-  assert.equal(EXTRA_TEMPLATES.length,21);
+  assert.equal(EXTRA_TEMPLATES.length,35);
   for(const template of EXTRA_TEMPLATES){
     const state={platform:'custom',customW:1600,customH:640,textLevel:'title'};
     const cover=hooks.renderTemplatePrompt(template,state,'事实与观点','A bridge connecting two libraries');
@@ -153,7 +153,7 @@ test('new article recipes render chosen dimensions and keep cover titles out of 
 test('catalog expansion preserves user overrides, copied templates and legacy IDs without mutating settings',()=>{
   const settings={promptTemplates:[{id:'gpt-paper-world',name:'我的纸雕',planningPrompt:'My plan',imagePrompt:'My image'},{id:'private-copy',name:'个人模板',planningPrompt:'Private plan',imagePrompt:'Private image'}]};
   const before=JSON.stringify(settings),templates=hooks.promptTemplates(settings);
-  assert.equal(templates.length,25);assert.equal(new Set(templates.map(t=>t.id)).size,25);
+  assert.equal(templates.length,39);assert.equal(new Set(templates.map(t=>t.id)).size,39);
   assert.equal(templates.find(t=>t.id==='gpt-paper-world').imagePrompt,'My image');
   for(const id of ['blank','dan-koe','neon-card','private-copy'])assert.ok(templates.some(t=>t.id===id));
   assert.equal(JSON.stringify(settings),before);
@@ -161,10 +161,10 @@ test('catalog expansion preserves user overrides, copied templates and legacy ID
 
 test('cover library separates validated covers from body diagrams while preserving active and custom choices',()=>{
   const settings={promptTemplates:[]};
-  const covers=hooks.templateChoices(settings,'cover');assert.equal(covers.length,16);
+  const covers=hooks.templateChoices(settings,'cover');assert.equal(covers.length,30);
   for(const id of ['gpt-concept-type','gpt-cinematic-story','gpt-object-editorial','gpt-human-narrative','gpt-opinion-collage','gpt-documentary-lens','gpt-literary-painting','dan-koe','neon-card','blank'])assert.ok(covers.some(t=>t.id===id));
   assert.ok(!covers.some(t=>t.id==='gpt-knowledge-flow'));
-  assert.equal(hooks.templateChoices(settings,'figure').length,24);
+  assert.equal(hooks.templateChoices(settings,'figure').length,38);
   assert.ok(hooks.templateChoices(settings,'cover','gpt-knowledge-flow').some(t=>t.id==='gpt-knowledge-flow'));
   const custom={promptTemplates:[{id:'gpt-paper-world',name:'我的纸雕',planningPrompt:'My plan',imagePrompt:'My image'}]};
   assert.ok(hooks.templateChoices(custom,'cover').some(t=>t.id==='gpt-paper-world'));
@@ -263,4 +263,31 @@ test('management controls hide, show, delete and restore; saving a copy keeps th
   assert.equal(saved.description,'Updated description');assert.equal(saved.imagePrompt,'Original {concept}');
   assert.equal(custom.name,'Fixture');assert.equal(custom.description,'Keep this description');
   assert.equal(active,'blank');assert.equal(returned,1);assert.equal(plugin.settings.modelServices.textId,'untouched');
+});
+
+
+test('thirty cover choices include fourteen traceable directions with article-independent offline examples',()=>{
+  const report=require('../assets/template-research.json');
+  const {RESEARCHED_TEMPLATES}=require('../src/templates/researched');
+  assert.equal(RESEARCHED_TEMPLATES.length,14);assert.equal(report.directions.length,14);
+  const covers=hooks.templateChoices({promptTemplates:[]},'cover');
+  assert.equal(covers.length,30);assert.equal(covers[0].id,'blank');
+  const sources=new Set(report.sources.map(source=>source.id));
+  const samples=new Set();
+  for(const template of RESEARCHED_TEMPLATES){
+    assert.ok(covers.some(item=>item.id===template.id));
+    const provenance=report.directions.find(item=>item.id===template.id);
+    assert.equal(provenance.sourceUrl,template.sourceUrl);assert.match(template.sourceUrl,/^https:\/\//);
+    assert.ok(provenance.selection_reason);assert.ok(template.researchSourceIds.every(id=>sources.has(id)));
+    assert.ok(!samples.has(template.sampleTitle));samples.add(template.sampleTitle);
+    assert.equal(template.coverPreviewKind,'typeset-example');
+    assert.ok(template.coverPreviewSvg.includes('<svg'));assert.ok(!/(?:<script|<image|(?:href|src)=|url\(["']?https?:)/.test(template.coverPreviewSvg));
+    const prompt=hooks.renderTemplatePrompt(template,{platform:'custom',customW:900,customH:383,textLevel:'title'},'当前文章的完整标题','An article-specific scene');
+    assert.ok(prompt.includes('当前文章的完整标题'));assert.ok(prompt.includes('900 x 383'));
+    assert.ok(!prompt.includes(template.sampleTitle));assert.ok(!template.planningPrompt.includes(template.sampleTitle));
+    const blank=hooks.renderTemplatePrompt(template,{platform:'custom',customW:1080,customH:1440,textLevel:'none'},'不应进入无字封面','A single original object');
+    assert.ok(blank.includes('1080 x 1440'));assert.ok(blank.includes('Do not render any text'));assert.ok(!blank.includes('不应进入无字封面'));
+  }
+  const github=report.sources.filter(source=>source.kind==='github');
+  assert.ok(github.length>=7);assert.ok(github.filter(source=>source.stars>=10000).length>=4);
 });
