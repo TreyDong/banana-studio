@@ -13,6 +13,8 @@ const EN = Object.freeze({
   "本篇历史": "Article history",
   "查看本篇文章的自动与手动批次": "Browse AI-planned and paragraph batches for this article",
   "新建一批": "New batch",
+  "新建一批后可更换风格": "Start a new batch to change its style",
+  "新建一批后可更换尺寸": "Start a new batch to change its dimensions",
   "保留历史图片，清空本批计划与未使用的预留位置": "Keep saved images; clear the current plan and unused reserved positions",
   "AI 规划": "AI planning",
   "按段落生成": "By paragraph",

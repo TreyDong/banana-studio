@@ -1163,7 +1163,12 @@ class BDView extends ItemView {
     const file = this.app.vault.getAbstractFileByPath(item.path); if (file?.extension !== 'md') return;
     if (this.articlePath !== file.path) this.useArticle(file, false);
     if (item.type === 'cover') {
-      if (!this.cover && this.covers.length) this.selectCover(this.covers.at(-1));
+      const image = this.cover || this.covers.at(-1);
+      if (image) {
+        const batch = this.covers.filter(c => image.batchId ? c.batchId === image.batchId : c === image);
+        this.coverBatch = batch.map((c, index) => ({ id: c.vaultPath, index: c.candidateIndex || index + 1, status: 'done', vaultPath: c.vaultPath }));
+        this.selectCover(image);
+      }
     } else {
       this.figureMode = item.mode;
       if (item.mode === 'agent' && !this.agentFigureItems().some(f => f.vaultPath)) {
@@ -1252,7 +1257,7 @@ class BDView extends ItemView {
     this.label(options, t('风格模板'));
     const template = this.button(options, this.templatePickerLabel(), () => this.openTemplateLibrary(), 'bd-btn bd-cover-template-button', 'layout-template'); template.setAttribute('aria-label', t('打开模板库') + ': ' + this.templatePickerLabel()); template.title = this.templatePickerLabel(); this.addIcon(template, 'chevron-down');
     const bar = compose.createDiv('bd-cover-compose-bar'), tools = bar.createDiv('bd-cover-tools'), actions = bar.createDiv('bd-cover-actions');
-    this.renderModelPicker(options);
+    const model = this.renderModelPicker(options);
     const attachments = tools.createDiv('bd-attachment-buttons');
     const ref = this.button(attachments, '', () => this.pickLocalReferences(), 'bd-btn bd-icon-button', 'paperclip'); ref.setAttribute('aria-label', t('从电脑添加参考图')); ref.title = t('从电脑添加参考图');
     const source = this.button(attachments, '', anchor => this.openReferenceMenu(anchor), 'bd-btn bd-icon-button bd-attachment-source', 'chevron-down'); source.setAttribute('aria-label', t('其他参考图来源')); source.setAttribute('aria-haspopup', 'menu'); source.title = t('其他参考图来源');
@@ -1729,7 +1734,7 @@ class BDView extends ItemView {
     this.renderFigureSize(mode);
     this.label(mode, t('风格模板'));
     const picker = this.button(mode, this.templatePickerLabel('figure'), () => this.openTemplateLibrary('figure'), 'bd-btn bd-full bd-figure-template', 'layout-template');
-    picker.setAttribute('aria-label', t('选择配图风格模板')); picker.disabled = this.figureSizeLocked(); picker.title = picker.disabled ? t('重新开始后可更换本批风格') : t('打开模板库'); this.addIcon(picker, 'chevron-down');
+    picker.setAttribute('aria-label', t('选择配图风格模板')); picker.disabled = this.figureSizeLocked(); picker.title = picker.disabled ? t('新建一批后可更换风格') : t('打开模板库'); this.addIcon(picker, 'chevron-down');
     if (this.figurePlan?.templateSelectionPending) mode.createDiv({ cls: 'bd-hint', text: t('请先重新规划，让 Agent 为整批配图选择风格') });
     const figures = this.figureItems();
     if (agent) this.renderFigureAgent(panel, fields, figures);
@@ -1818,7 +1823,7 @@ class BDView extends ItemView {
       }
       row.createSpan({ cls: 'bd-hint', text: 'px' });
     }
-    if (locked) parent.createDiv({ cls: 'bd-figure-size-note', text: t('重新开始后可更换本批尺寸') });
+    if (locked) parent.createDiv({ cls: 'bd-figure-size-note', text: t('新建一批后可更换尺寸') });
   }
   figurePositionLabel(fg) { const section = fg.anchor?.heading?.split(' / ').at(-1); return (section ? '「' + section + '」· ' : '') + (fg.anchor?.side === 'before' ? t('这段之前') : t('这段之后')); }
   renderFigureAgent(panel, fields, figures) {
@@ -2098,6 +2103,11 @@ class BDView extends ItemView {
     note.createDiv({ cls: 'bd-flow-note', text: t('本批正文配图尚未插入。这里显示已保存的原文，生成结果不会自动出现在预览中。') });
     this.button(note, t('返回正文配图'), () => this.navigateTab('figure', 'workflow'), 'bd-btn', 'images');
   }
+  async articleMarkdown(file) {
+    const items = this.agentFigureItems().filter(f => f.sourcePath === file.path && f.placeholder).map(f => ({ ...f }));
+    const content = await this.app.vault.cachedRead(file);
+    return stripFrontmatter(items.length ? this.plugin.figureAgent.removePlaceholders(content, items, file.path).content : content);
+  }
   async renderArticleTab(B) {
     const f = this.activeFile(); const page = B.createDiv('bd-article-page');
     const top = page.createDiv('bd-article-toolbar'), heading = top.createDiv(); heading.createSpan({ cls: 'bd-stage-title', text: t('文章检查') });
@@ -2108,7 +2118,7 @@ class BDView extends ItemView {
     const channels = page.createDiv('bd-article-channels');
     this.button(channels, t('查看公众号版本'), () => this.navigateTab('wechat'), 'bd-btn', 'send');
     this.button(channels, t('查看 X 版本'), () => this.navigateTab('x'), 'bd-btn', 'at-sign');
-    const holder = page.createDiv('bd-article markdown-rendered'); const md = stripFrontmatter(await this.app.vault.cachedRead(f));
+    const holder = page.createDiv('bd-article markdown-rendered'); const md = await this.articleMarkdown(f);
     if (holder.isConnected) await MarkdownRenderer.render(this.app, md, holder, f.path, this);
   }
 
@@ -2116,7 +2126,7 @@ class BDView extends ItemView {
 
   wechatTheme() { return this.plugin.wechatThemes.wechatTheme(this.wechatThemeId); }
   async wechatMarkdown(f) {
-    let md = stripFrontmatter(await this.app.vault.cachedRead(f));
+    let md = await this.articleMarkdown(f);
     const title = (this.title || articleTitle(this.app, f) || '').trim();
     if (title) md = md.replace(new RegExp('^#\\s+' + title.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&') + '\\s*(?:\\n+|$)'), '');
     return md;
@@ -2161,13 +2171,13 @@ class BDView extends ItemView {
     if (!this.wechatCoverPath || this.wechatCoverPath === 'none') return null;
     return this.resolveVaultImage(this.wechatCoverPath, f);
   }
-  /* 用库内资源 URL 回填占位图，在手机宽度 iframe 里预览。 */
+  /* Sandboxed srcdoc has an opaque origin; inline vault images for the preview. */
   async renderWechatPreview(stage, f) {
     const formatted = await this.wechatFormatted(f);
     let html = formatted.html;
     for (let i = 0; i < formatted.images.length; i++) {
       const file = this.resolveVaultImage(formatted.images[i], f);
-      html = html.split(this.plugin.wechatFormatter.imagePlaceholder(i)).join(file ? this.app.vault.getResourcePath(file) : '');
+      html = html.split(this.plugin.wechatFormatter.imagePlaceholder(i)).join(file ? await fileToDataUrl(this.app, file) : '');
     }
     stage.empty(); stage.addClass('bd-wechat-stage');
     const phone = stage.createDiv('bd-wechat-phone');

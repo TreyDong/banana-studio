@@ -29,7 +29,7 @@ class HostPlugin {
   addSettingTab() {}
   registerEvent() {}
 }
-const host = {getLanguage:()=>hostLanguage,Plugin:HostPlugin,ItemView:class{},PluginSettingTab:class{},Modal:class{constructor(){this.scope={win:null};}open(){this.scope.win={};}},FuzzySuggestModal:class{constructor(){this.scope={win:null};}open(){this.scope.win={};}},TFile:class{},MarkdownView:class{},Menu:HostMenu,Notice:class{},normalizePath:s=>s.replace(/\\/g,'/'),setIcon(){}};
+const host = {arrayBufferToBase64:buffer=>Buffer.from(buffer).toString('base64'),getLanguage:()=>hostLanguage,Plugin:HostPlugin,ItemView:class{},PluginSettingTab:class{},Modal:class{constructor(){this.scope={win:null};}open(){this.scope.win={};}},FuzzySuggestModal:class{constructor(){this.scope={win:null};}open(){this.scope.win={};}},TFile:class{},MarkdownView:class{},Menu:HostMenu,Notice:class{},normalizePath:s=>s.replace(/\\/g,'/'),setIcon(){}};
 function load(filename, expose=false) {
   const mod={exports:{}}; const local=createRequire(filename);
   const safeRequire = id => {
@@ -40,13 +40,13 @@ function load(filename, expose=false) {
   };
   let source=fs.readFileSync(filename,'utf8');
   if(expose) source+='\nmodule.exports.testHooks = {readGeneratedImage,BDView,TemplateLibraryModal,TemplateManagerModal,PromptTemplateEditor,updateTemplateSettings,imageFolder,outputRules,createOutputTask,outputImageName,promptTemplates,templateChoices,figureRecipe,renderFigureRecipe,renderTemplatePrompt,templateLabel,PLATFORMS,FIGURE_SIZES,PALETTES,RENDERINGS,MODULES};';
-  vm.runInNewContext(source,{module:mod,exports:mod.exports,require:safeRequire,Buffer,URL,Blob,process,console,setTimeout,clearTimeout,AbortController,document:{getElementById:()=>null}},{filename});
+  vm.runInNewContext(source,{module:mod,exports:mod.exports,require:safeRequire,Buffer,URL,Blob,process,console,setTimeout,clearTimeout,AbortController,requestAnimationFrame(){},document:{getElementById:()=>null}},{filename});
   return mod.exports;
 }
 const sourcePlugin=load(path.join(root,'src/main.js'),true);
 const hooks=sourcePlugin.testHooks;
 function flowNode(options={}) {
-  const node={text:options.text||'',children:[],attrs:{...options.attr},value:'',isConnected:true,setAttribute(k,v){this.attrs[k]=v;}};
+  const node={text:options.text||'',children:[],attrs:{...options.attr},value:'',isConnected:true,setAttribute(k,v){this.attrs[k]=v;},empty(){this.children=[];},addClass(){}};
   for(const method of ['createEl','createDiv','createSpan']) node[method]=(...args)=>{const opts=method==='createEl'?(args[1]||{}):(typeof args[0]==='object'?args[0]:{});const child=flowNode(opts);node.children.push(child);return child;};
   return node;
 }
@@ -61,6 +61,14 @@ test('chosen planning and image services and model names are visible without hov
   assert.match(flowText(parent),/Planning Service · planner-v2/);assert.match(flowText(parent),/Local Gemini · gemini-image/);
   assert.equal(picker.attrs['aria-haspopup'],'menu');view.busy=true;assert.equal(view.renderModelPicker(flowNode()).disabled,true);
 });
+test('the complete cover composer renders the selected models and locks them with its controls',()=>{
+  const view=flowView({coverChat:[],coverChatDraft:'',coverCount:1,coverBatch:[],plugin:{activeConnection:()=>({name:'Selected service',model:'chosen-model'})},templatePickerLabel:()=> 'Style',canGenerateCover:()=>true});
+  const panel=flowNode(),fields=flowNode();view.renderCoverConversation(panel,fields);
+  assert.match(flowText(panel),/Selected service · chosen-model/);assert.match(flowText(panel),/生成/);
+  view.busy=true;const locked=flowNode();view.renderCoverConversation(locked,flowNode());
+  function all(n){return [n,...n.children.flatMap(all)];}
+  const picker=all(locked).find(n=>n.attrs['aria-haspopup']==='menu'&&/Selected service/.test(n.attrs['aria-label']||''));assert.equal(picker.disabled,true);
+});
 test('global history includes both modes across articles and uses current unsaved results',()=>{
   const files=new Map(['Old.md','Current.md','old.png','manual.png','live.png'].map(path=>[path,{path,extension:path.endsWith('.md')?'md':'png'}]));
   const view=flowView({articlePath:'Current.md',title:'Current',covers:[{vaultPath:'live.png'}],figures:[],app:{vault:{getAbstractFileByPath:p=>files.get(p)}},plugin:{settings:{sessions:{'Old.md':{title:'Old',covers:[{vaultPath:'old.png'},{vaultPath:'missing.png'}],figures:[{mode:'manual',vaultPath:'manual.png'}]},'Current.md':{covers:[]},'Deleted.md':{covers:[{vaultPath:'old.png'}]}}}}});
@@ -69,7 +77,7 @@ test('global history includes both modes across articles and uses current unsave
 test('history routing saves the current article before loading another and guards running work',async()=>{
   let loaded=0,selected=0;
   const view=flowView({articlePath:'Current.md',app:{vault:{getAbstractFileByPath:()=>({path:'Old.md',extension:'md'})}},useArticle(file){loaded++;this.articlePath=file.path;this.covers=[{vaultPath:'old.png'}];},selectCover(item){selected++;this.cover=item;}});
-  await view.openSavedGeneration({path:'Old.md',type:'cover'});assert.equal(loaded,1);assert.equal(selected,1);assert.equal(view.destination,'cover');
+  await view.openSavedGeneration({path:'Old.md',type:'cover'});assert.equal(loaded,1);assert.equal(selected,1);assert.equal(view.destination,'cover');assert.equal(view.coverBatch.length,1);assert.equal(view.coverBatch[0].vaultPath,'old.png');
   view.busy=true;await view.openSavedGeneration({path:'Else.md',type:'figure',mode:'agent'});assert.equal(loaded,1);
 });
 test('article history switches between manual and AI batches even from the opposite mode',async()=>{
@@ -97,6 +105,19 @@ test('confirming generated images replaces reserved positions before the inserte
   let content=figures.preparePlaceholders(source,[fg],'Flow.md').content,saved;
   const view=flowView({figurePlan:{id:'p',phase:'ready'},figures:[fg],app:{vault:{getAbstractFileByPath:()=>({}),async process(file,fn){content=fn(content);}}},plugin:{figureAgent:figures},render(){},async persistFigures(){saved=this.figurePlan.phase;}});
   await view.confirmAgentFigures();assert.match(content,/!\[\[images\/a.png\]\]/);assert.equal(saved,'inserted');assert.equal(view.figurePlan.phase,'inserted');assert.equal(view.insertingFigures,false);
+});
+test('article and channel content hide owned reserved markers without changing saved text',async()=>{
+  const source='# Flow\n\nFirst paragraph.\n\nSecond paragraph.\n',blocks=figures.articleBlocks(source),fg={sourcePath:'Flow.md',planId:'p',mode:'agent',anchor:figures.makeAnchor(blocks[0],blocks,'Flow.md',source),placeholder:figures.placeholderFor('p',0)};
+  const marked=figures.preparePlaceholders(source,[fg],'Flow.md').content;
+  const view=flowView({title:'Flow',figurePlan:{id:'p'},figures:[fg],app:{vault:{cachedRead:async()=>marked}},plugin:{figureAgent:figures}});
+  const preview=await view.articleMarkdown({path:'Flow.md'}),channel=await view.wechatMarkdown({path:'Flow.md'});
+  assert.ok(!preview.includes(fg.placeholder));assert.ok(!channel.includes(fg.placeholder));assert.match(preview,/First paragraph/);assert.match(channel,/Second paragraph/);assert.ok(marked.includes(fg.placeholder));
+});
+test('sandboxed WeChat preview embeds vault image bytes while keeping sandbox restrictions',async()=>{
+  const stage=flowNode(),formatted={html:'<img src="IMAGE0"><p>Text</p>',images:['assets/a.webp']};
+  const view=flowView({app:{vault:{readBinary:async()=>Buffer.from('fixture')}},plugin:{wechatFormatter:{imagePlaceholder:()=> 'IMAGE0'}},wechatFormatted:async()=>formatted,resolveVaultImage:()=>({extension:'webp'})});
+  await view.renderWechatPreview(stage,{path:'Flow.md'});
+  const frame=stage.children[0].children[0];assert.match(frame.srcdoc,/data:image\/webp;base64,Zml4dHVyZQ==/);assert.equal(frame.attrs.sandbox,'');assert.equal(formatted.html,'<img src="IMAGE0"><p>Text</p>');
 });
 test('ribbon launch captures the active note before focusing a new or existing workbench',async()=>{
   for(const existing of [false,true]){
