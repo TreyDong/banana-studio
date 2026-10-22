@@ -11,6 +11,14 @@ const services = require('../src/services/model-services.js');
 const figures = require('../src/illustrations/figure-agent.js');
 const i18n = require('../src/i18n.js');
 let hostLanguage = 'zh-CN';
+class HostMenu {
+  constructor(){HostMenu.last=this;this.items=[];}
+  addItem(fn){const item={};for(const key of ['Title','Icon','Checked','Disabled','IsLabel'])item['set'+key]=value=>{item[key.toLowerCase()]=value;return item;};item.onClick=fn=>{item.click=fn;return item;};fn(item);this.items.push(item);return this;}
+  addSeparator(){this.items.push({separator:true});return this;}
+  setUseNativeMenu(value){this.native=value;return this;}
+  onHide(fn){this.hideCallback=fn;}
+  showAtPosition(){this.shown=true;}
+}
 class HostPlugin {
   constructor(app) { this.app = app; this.manifest = {id:'banana-design',version:'0.10.2',dir:'.obsidian/plugins/banana-design'}; this.commands=[]; }
   async loadData() { return this.saved || null; }
@@ -21,7 +29,7 @@ class HostPlugin {
   addSettingTab() {}
   registerEvent() {}
 }
-const host = {getLanguage:()=>hostLanguage,Plugin:HostPlugin,ItemView:class{},PluginSettingTab:class{},Modal:class{constructor(){this.scope={win:null};}open(){this.scope.win={};}},FuzzySuggestModal:class{constructor(){this.scope={win:null};}open(){this.scope.win={};}},TFile:class{},MarkdownView:class{},Menu:class{},Notice:class{},normalizePath:s=>s.replace(/\\/g,'/'),setIcon(){}};
+const host = {getLanguage:()=>hostLanguage,Plugin:HostPlugin,ItemView:class{},PluginSettingTab:class{},Modal:class{constructor(){this.scope={win:null};}open(){this.scope.win={};}},FuzzySuggestModal:class{constructor(){this.scope={win:null};}open(){this.scope.win={};}},TFile:class{},MarkdownView:class{},Menu:HostMenu,Notice:class{},normalizePath:s=>s.replace(/\\/g,'/'),setIcon(){}};
 function load(filename, expose=false) {
   const mod={exports:{}}; const local=createRequire(filename);
   const safeRequire = id => {
@@ -37,6 +45,34 @@ function load(filename, expose=false) {
 }
 const sourcePlugin=load(path.join(root,'src/main.js'),true);
 const hooks=sourcePlugin.testHooks;
+test('an open model menu cannot change a running job and reselecting the current service does not save',async()=>{
+  i18n.configureLocale(()=>'zh');let saves=0,renders=0;
+  const plugin={settings:{modelServices:{textId:'current',imageId:'image',text:[{id:'current',name:'Current'},{id:'other',name:'Other'}],image:[{id:'image',name:'Image'}]}},async selectConnection(kind,id){saves++;this.settings.modelServices[kind+'Id']=id;}};
+  const attrs={},anchor={getBoundingClientRect:()=>({left:0,bottom:0}),setAttribute:(k,v)=>attrs[k]=v};
+  const view={plugin,renderBody(){renders++;}};
+  hooks.BDView.prototype.openModelMenu.call(view,anchor);
+  const menu=HostMenu.last,choices=menu.items.filter(item=>item.click&&item.title.includes(' · '));
+  assert.equal(attrs['aria-expanded'],'true');assert.equal(choices[0].checked,true);
+  await choices[0].click();assert.equal(saves,0);
+  view.busy=true;await choices[1].click();assert.equal(saves,0);assert.equal(plugin.settings.modelServices.textId,'current');
+  view.busy=false;await choices[1].click();assert.equal(saves,1);assert.equal(renders,1);assert.equal(plugin.settings.modelServices.textId,'other');
+  menu.hideCallback();assert.equal(attrs['aria-expanded'],'false');
+});
+test('an open cover history menu cannot replace the cover after a task starts',()=>{
+  const image={vaultPath:'old.png'},view={covers:[image],cover:null,selectCover(){throw new Error('Stale menu changed cover');}};
+  hooks.BDView.prototype.openCoverHistory.call(view,{getBoundingClientRect:()=>({left:0,bottom:0})});
+  view.busy=true;HostMenu.last.items[0].click();assert.equal(view.cover,null);
+});
+test('workspace arrow and endpoint keys switch tabs, wrap and focus the selected tab while busy tabs stay locked',()=>{
+  let buttons=[],focused;
+  const view={tab:'cover',button(parent,text,fn){const b={attrs:{},setAttribute(k,v){this.attrs[k]=v;},click(){if(!this.disabled)fn();},focus(){focused=this;}};buttons.push(b);return b;},contentEl:{querySelector(){return buttons.find(b=>b.attrs['aria-selected']==='true');}},render(){buttons=[];hooks.BDView.prototype.renderTabs.call(this,app);}};
+  const app={createDiv:()=>({setAttribute(){}})};view.render();
+  const key=key=>{let prevented=false;const b=buttons.find(b=>b.tabIndex===0);b.onkeydown({key,preventDefault(){prevented=true;}});return prevented;};
+  assert.equal(key('ArrowLeft'),true);assert.equal(view.tab,'x');assert.equal(focused,buttons[4]);
+  key('ArrowRight');assert.equal(view.tab,'cover');key('End');assert.equal(view.tab,'x');key('Home');assert.equal(view.tab,'cover');
+  assert.equal(key('Tab'),false);assert.equal(buttons.filter(b=>b.tabIndex===0).length,1);
+  view.operation={};view.render();assert.equal(key('ArrowRight'),false);assert.equal(view.tab,'cover');
+});
 test('standard three-file release loads without sibling modules, assets, network or CLI launch',async()=>{
   const temp=fs.mkdtempSync(path.join(os.tmpdir(),'bd-install-'));
   try {

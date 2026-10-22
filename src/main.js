@@ -1111,16 +1111,22 @@ class BDView extends ItemView {
   }
   openModelMenu(anchor) {
     if (this.busy || this.coverChatBusy || this.insertingFigures) return;
-    const menu = new Menu();
+    const menu = new Menu().setUseNativeMenu(false);
     for (const kind of ['text', 'image']) {
       if (kind === 'image') menu.addSeparator();
-      menu.addItem(item => item.setTitle(kind === 'text' ? t('构思与规划') : t('图片生成')).setDisabled(true));
-      for (const c of this.plugin.settings.modelServices[kind]) menu.addItem(item => item.setTitle(c.name + ' · ' + (c.model || t('默认模型'))).setChecked(c.id === this.plugin.settings.modelServices[kind + 'Id']).onClick(async () => {
+      menu.addItem(item => item.setTitle(kind === 'text' ? t('构思与规划') : t('图片生成')).setIsLabel(true));
+      for (const c of this.plugin.settings.modelServices[kind]) menu.addItem(item => item.setTitle(c.name + ' · ' + (c.model || t('默认模型'))).setIcon(kind === 'text' ? 'message-square' : 'image').setChecked(c.id === this.plugin.settings.modelServices[kind + 'Id']).onClick(async () => {
+        if (this.busy || this.coverChatBusy || this.insertingFigures || c.id === this.plugin.settings.modelServices[kind + 'Id']) return;
         try { await this.plugin.selectConnection(kind, c.id); this.renderBody(); } catch (e) { new Notice(t('切换失败：') + e.message); }
       }));
     }
     menu.addSeparator();
-    menu.addItem(item => item.setTitle(t('添加与管理服务')).setIcon('plus').onClick(() => new ModelManagerModal(this.plugin).open()));
+    menu.addItem(item => item.setTitle(t('添加与管理服务')).setIcon('settings-2').onClick(() => {
+      if (this.busy || this.coverChatBusy || this.insertingFigures) return;
+      new ModelManagerModal(this.plugin, () => { if (!this.viewClosed) this.renderBody(); }).open();
+    }));
+    anchor.setAttribute('aria-expanded', 'true');
+    menu.onHide(() => anchor.setAttribute('aria-expanded', 'false'));
     const rect = anchor.getBoundingClientRect(); menu.showAtPosition({ x: rect.left, y: rect.bottom });
   }
   selectCover(image) {
@@ -1148,10 +1154,11 @@ class BDView extends ItemView {
   }
   openCoverHistory(anchor) {
     if (this.busy || this.coverChatBusy) return;
-    const menu = new Menu();
+    const menu = new Menu().setUseNativeMenu(false);
     for (let i = this.covers.length - 1; i >= 0; i--) {
       const image = this.covers[i];
       menu.addItem(item => item.setTitle(t('版本 ') + (i + 1) + (image.templateName ? ' · ' + image.templateName : '')).setChecked(image === this.cover).onClick(() => {
+        if (this.busy || this.coverChatBusy || this.insertingFigures) return;
         const batch = this.covers.filter(c => image.batchId ? c.batchId === image.batchId : c === image);
         this.coverBatch = batch.map((c, index) => ({ id: c.vaultPath, index: c.candidateIndex || index + 1, status: 'done', vaultPath: c.vaultPath }));
         this.selectCover(image);
@@ -1178,16 +1185,18 @@ class BDView extends ItemView {
     input.value = this.coverChatDraft; input.disabled = this.busy || this.coverChatBusy;
     input.oninput = () => { this.coverChatDraft = input.value; this.remember(); };
     input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void this.submitCoverChat(); } };
-    const bar = compose.createDiv('bd-cover-compose-bar');
-    const template = this.button(bar, this.templatePickerLabel(), () => this.openTemplateLibrary(), 'bd-btn bd-cover-template-button', 'layout-template'); template.setAttribute('aria-label', t('打开模板库')); template.title = this.templatePickerLabel();
-    const ref = this.button(bar, '', () => { const files = this.app.vault.getFiles().filter(f => /^(png|jpe?g|webp)$/.test(f.extension)); if (!files.length) throw new Error(t('笔记库里还没有图片')); new RefPicker(this.app, files, file => { if (!this.refs.includes(file)) this.refs.push(file); this.renderBody(); }).open(); }, 'bd-btn bd-icon-button', 'paperclip'); ref.setAttribute('aria-label', t('添加参考图'));
-    const model = this.button(bar, '', anchor => this.openModelMenu(anchor), 'bd-btn bd-icon-button', 'settings'); model.setAttribute('aria-label', t('选择模型')); model.title = this.modelSummary();
-    const quantity = bar.createEl('select', { cls: 'bd-cover-count', attr: { 'aria-label': t('生成张数'), title: t('一次生成几张封面') } });
+    const options = compose.createDiv('bd-cover-options');
+    this.label(options, t('风格模板'));
+    const template = this.button(options, this.templatePickerLabel(), () => this.openTemplateLibrary(), 'bd-btn bd-cover-template-button', 'layout-template'); template.setAttribute('aria-label', t('打开模板库') + ': ' + this.templatePickerLabel()); template.title = this.templatePickerLabel(); this.addIcon(template, 'chevron-down');
+    const bar = compose.createDiv('bd-cover-compose-bar'), tools = bar.createDiv('bd-cover-tools'), actions = bar.createDiv('bd-cover-actions');
+    const model = this.button(tools, t('模型'), anchor => this.openModelMenu(anchor), 'bd-btn bd-model-picker', 'chevron-down'); model.setAttribute('aria-label', t('选择模型')); model.setAttribute('aria-haspopup', 'menu'); model.setAttribute('aria-expanded', 'false'); model.title = this.modelSummary();
+    const ref = this.button(tools, '', () => { const files = this.app.vault.getFiles().filter(f => /^(png|jpe?g|webp)$/.test(f.extension)); if (!files.length) throw new Error(t('笔记库里还没有图片')); new RefPicker(this.app, files, file => { if (this.busy || this.coverChatBusy) return; if (!this.refs.includes(file)) this.refs.push(file); this.renderBody(); }).open(); }, 'bd-btn bd-icon-button', 'paperclip'); ref.setAttribute('aria-label', t('添加参考图')); ref.title = t('添加参考图');
+    const quantity = actions.createEl('select', { cls: 'bd-cover-count', attr: { 'aria-label': t('生成张数'), title: t('一次生成几张封面') } });
     for (let n = 1; n <= MAX_COVER_COUNT; n++) quantity.createEl('option', { value: String(n), text: imageCount(n) });
     quantity.value = String(this.coverCount); quantity.disabled = this.busy || this.coverChatBusy || !this.activeFile();
     quantity.onchange = () => { this.coverCount = coverQuantity(quantity.value); this.remember(); };
-    const stop = this.renderStopButton(bar, 'bd-btn bd-primary bd-cover-send', true);
-    if (!stop) { const send = this.button(bar, '', () => this.submitCoverChat(), 'bd-btn bd-primary bd-cover-send', 'arrow-up'); send.setAttribute('aria-label', this.cover ? t('修改封面') : t('生成封面')); send.disabled = this.busy || this.coverChatBusy || !this.activeFile(); }
+    const stop = this.renderStopButton(actions, 'bd-btn bd-primary bd-cover-send');
+    if (!stop) { const send = this.button(actions, this.cover ? t('修改') : t('生成'), () => this.submitCoverChat(), 'bd-btn bd-primary bd-cover-send', 'arrow-up'); send.setAttribute('aria-label', this.cover ? t('修改封面') : t('生成封面')); send.title = t('Enter 发送，Shift+Enter 换行'); send.disabled = this.busy || this.coverChatBusy || !this.activeFile(); }
     for (const button of [template, ref, model]) button.disabled = this.busy || this.coverChatBusy || !this.activeFile();
     const status = this.error || this.progress;
     if (status) { const prefix = this.coverBatchSlot ? t('第 ') + this.coverBatchSlot.index + ' / ' + this.coverBatch.length + t(' 张 · ') : ''; const message = compose.createDiv({ cls: 'bd-status' + (this.error ? ' is-error' : ''), text: prefix + status }); message.setAttribute('role', 'status'); }
@@ -1352,7 +1361,7 @@ class BDView extends ItemView {
     }, 'bd-btn', 'image-plus');
     if (this.coverCopy.cardImage) { const remove = this.button(row, t('移除卡片图片'), () => { this.coverCopy.cardImage = ''; this.remember(); this.renderBody(); }, 'bd-btn', 'x'); remove.title = this.coverCopy.cardImage; }
   }
-  addIcon(parent, name) { const s = parent.createSpan('bd-icon'); setIcon(s, name); return s; }
+  addIcon(parent, name) { const s = parent.createSpan({ cls: 'bd-icon', attr: { 'aria-hidden': 'true' } }); setIcon(s, name); return s; }
   button(parent, text, fn, cls = 'bd-btn', icon) {
     const b = parent.createEl('button', { cls, attr: { type: 'button' } }); if (icon) this.addIcon(b, icon); b.createSpan({ text });
     b.onclick = async () => { try { await fn(b); } catch (e) { new Notice(e.message || String(e), 7000); } }; return b;
@@ -1372,15 +1381,25 @@ class BDView extends ItemView {
   renderHead(app) {
     const head = app.createDiv('bd-head'); const brand = head.createDiv('bd-brand'); this.addIcon(brand, 'aperture'); brand.createSpan({ text: 'Banana Design' });
     const actions = head.createDiv('bd-head-actions');
-    const article = this.button(actions, this.activeFile() ? '@ ' + articleTitle(this.app, this.activeFile()) : t('@ 选择文章'), () => this.pickArticle(), 'bd-article-picker', 'file-text');
+    actions.createSpan({ cls: 'bd-article-context', text: t('当前文章') });
+    const article = this.button(actions, this.activeFile() ? articleTitle(this.app, this.activeFile()) : t('选择文章'), () => this.pickArticle(), 'bd-article-picker', 'file-text');
     article.title = this.articlePath || t('选择一篇 Markdown 文章'); article.disabled = this.busy || this.coverChatBusy || this.insertingFigures;
     this.headEl = head;
   }
   renderTabs(app) {
-    const tabs = app.createDiv('bd-tabs'); tabs.setAttribute('role', 'tablist');
+    const tabs = app.createDiv('bd-tabs'); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', t('工作台导航'));
+    const buttons = [];
     for (const [key, name, icon] of [['cover', t('封面'), 'image'], ['figure', t('正文配图'), 'images'], ['article', t('文章预览'), 'file-text'], ['wechat', t('公众号发布'), 'send'], ['x', t('X 发布'), 'at-sign']]) {
-      const b = this.button(tabs, name, () => { this.tab = key; this.render(); }, 'bd-tab' + (this.tab === key ? ' is-active' : ''), icon);
+      const b = this.button(tabs, name, () => { this.tab = key; this.render(); this.contentEl.querySelector('.bd-tab.is-active')?.focus(); }, 'bd-tab' + (this.tab === key ? ' is-active' : ''), icon);
       b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(this.tab === key));
+      b.tabIndex = this.tab === key ? 0 : -1;
+      b.onkeydown = e => {
+        const index = buttons.indexOf(b);
+        const target = e.key === 'ArrowRight' ? (index + 1) % buttons.length : e.key === 'ArrowLeft' ? (index + buttons.length - 1) % buttons.length : e.key === 'Home' ? 0 : e.key === 'End' ? buttons.length - 1 : -1;
+        if (target < 0 || buttons[target].disabled) return;
+        e.preventDefault(); buttons[target].click();
+      };
+      buttons.push(b);
       b.disabled = !!this.operation;
     }
   }
@@ -1567,7 +1586,7 @@ class BDView extends ItemView {
     const mode = fields.createDiv('bd-section'), toolbar = mode.createDiv('bd-figure-toolbar'); toolbar.createSpan({ text: t('正文配图') });
     const controls = toolbar.createDiv('bd-figure-controls');
     const restart = this.button(controls, t('重新开始'), () => this.restartFigures(), 'bd-btn', 'plus'); restart.disabled = this.busy || this.coverChatBusy || this.insertingFigures;
-    const model = this.button(controls, '', b => this.openModelMenu(b), 'bd-btn bd-icon-button', 'settings-2'); model.setAttribute('aria-label', t('选择配图模型')); model.title = this.modelSummary();
+    const model = this.button(controls, t('模型'), b => this.openModelMenu(b), 'bd-btn bd-model-picker', 'chevron-down'); model.setAttribute('aria-label', t('选择配图模型')); model.setAttribute('aria-haspopup', 'menu'); model.setAttribute('aria-expanded', 'false'); model.title = this.modelSummary();
     this.pillGroup(mode, [{ id: 'agent', name: t('自动模式') }, { id: 'manual', name: t('手动模式') }], this.figureMode, v => { this.figureMode = v; if (v === 'agent' && this.figurePlan && this.figurePlan.phase !== 'inserted') { this.restoreFigureSize(); this.figureTemplateId = this.figurePlan.template?.id || 'blank'; } });
     this.renderFigureSize(mode);
     this.label(mode, t('风格模板'));
@@ -1728,7 +1747,7 @@ class BDView extends ItemView {
   }
   openFigureHistory(anchor) {
     if (this.busy || this.coverChatBusy || this.insertingFigures) return;
-    const menu = new Menu();
+    const menu = new Menu().setUseNativeMenu(false);
     if (this.figureMode === 'manual') {
       const history = this.manualFigureHistory();
       for (const [i, batch] of history.entries()) menu.addItem(item => item.setTitle(batch.items.filter(f => f.vaultPath).length + t(' 张 · 手动批次 ') + (history.length - i)).setChecked(this.manualBatchId === batch.id).onClick(() => {
@@ -2457,7 +2476,7 @@ class BDView extends ItemView {
   }
   openSizeConvertMenu(anchor) {
     if (this.busy || this.coverChatBusy || !this.cover) return;
-    const menu = new Menu(); let group = '';
+    const menu = new Menu().setUseNativeMenu(false); let group = '';
     for (const preset of PLATFORMS) {
       if (preset.group && preset.group !== group) { if (group) menu.addSeparator(); group = preset.group; }
       const current = this.cover.platform === preset.id && (this.cover.w || 0) === preset.w && (this.cover.h || 0) === preset.h;
@@ -2537,7 +2556,7 @@ function renderServiceCards(plugin, body, redraw) {
       const actions = card.createDiv('bd-service-actions');
       modelButton(actions, t('编辑'), () => new ProviderModal(plugin, kind, connection, redraw).open());
       const more = modelButton(actions, '', b => {
-        const menu = new Menu();
+        const menu = new Menu().setUseNativeMenu(false);
         menu.addItem(item => item.setTitle(t('移除服务')).setIcon('trash-2').onClick(async () => {
           const services = plugin.settings.modelServices, previous = { ...services, [kind]: [...services[kind]] };
           services[kind] = services[kind].filter(c => c.id !== connection.id);
@@ -2551,12 +2570,12 @@ function renderServiceCards(plugin, body, redraw) {
   body.createDiv({ cls: 'bd-settings-description bd-service-note', text: t('API 密钥保存在 Obsidian 密钥库。Codex / ChatGPT 沿用本机登录；其他服务使用各自的 API 密钥。') });
 }
 class ModelManagerModal extends Modal {
-  constructor(plugin) { super(plugin.app); this.plugin = plugin; }
+  constructor(plugin, done) { super(plugin.app); this.plugin = plugin; this.done = done; }
   onOpen() {
     this.setTitle(t('模型与连接')); this.contentEl.addClass('bd-settings'); this.contentEl.addClass('bd-model-manager');
     const render = () => { this.contentEl.empty(); renderServiceCards(this.plugin, this.contentEl, render); }; render();
   }
-  onClose() { this.contentEl.empty(); }
+  onClose() { this.contentEl.empty(); this.done?.(); }
 }
 class ProviderModal extends Modal {
   constructor(plugin, kind, connection, done) {
