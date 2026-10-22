@@ -245,5 +245,5 @@ const EXTRA_TEMPLATES = RECIPES.map(([id,name,description,category,kind,bg,ink,a
     imagePrompt: 'Create one finished premium editorial article cover.\nScene: {concept}\n' + direction.art + (EDITORIAL_TYPE_IDS.has(template.id) ? '\n' + EDITORIAL_TYPE_RULES : '') + '\nCanvas: {width} x {height} px, aspect ratio {ratio}. Compose the entire cover specifically for this ratio with 6 percent safe margins; never crop a taller poster.\n{text_rule}\nThe text rule above takes absolute priority over any headline or typographic styling guidance: when it requests no text, render only the visual scene without lettering. Never reproduce the example subject by default.\nNo added bylines, unsupported subtitles, watermarks, signatures, fake metrics, brands, contact sheets or reference-site UI.'
   };
 });
-EXTRA_TEMPLATES.push(...require('./editorial').EDITORIAL_TEMPLATES, ...require('./researched').RESEARCHED_TEMPLATES);
+EXTRA_TEMPLATES.push(...require('./editorial').EDITORIAL_TEMPLATES, ...require('./researched').RESEARCHED_TEMPLATES, ...require('./styles').STYLE_TEMPLATES);
 module.exports = { EXTRA_TEMPLATES };

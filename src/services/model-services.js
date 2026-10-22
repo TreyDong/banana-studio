@@ -630,4 +630,4 @@ async function listModels(config, kind, key, signal) {
   if (kind==='image' && config.provider==='siliconflow') models = models.filter(m=>/image|kolors|flux|diffusion|imagen|sdxl/i.test(m.id));
   return models.map(({id,name})=>({id,name}));
 }
-module.exports = { providers,preset,GROUPS,validateConnection,migrate,selected,generateText,generateImage,listModels,aspectRatio };
+module.exports = { providers,preset,GROUPS,validateConnection,migrate,selected,generateText,generateImage,listModels,aspectRatio,request };

@@ -393,3 +393,73 @@
 /* Cover samples retain their complete wide composition and readable headline. */
 
 .bd-cover-template-library .bd-library-card :is(img,.bd-library-blank-preview,.bd-library-no-preview) { height:auto; aspect-ratio:2.35 / 1; object-fit:contain; }
+
+/* ================= 公众号排版与发布 ================= */
+
+.bd-wechat-theme-row { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
+.bd-wechat-theme-card { display:flex; flex-direction:column; gap:6px; padding:8px; border:1px solid var(--bd-line); border-radius:8px; background:var(--bd-paper); cursor:pointer; }
+.bd-wechat-theme-card:hover { border-color:color-mix(in srgb,var(--interactive-accent) 50%,var(--bd-line)); }
+.bd-wechat-theme-card.is-active { border-color:var(--interactive-accent); box-shadow:0 0 0 1px var(--interactive-accent); }
+.bd-wechat-theme-card svg { width:100%; height:auto; border-radius:4px; border:1px solid var(--bd-line); }
+.bd-wechat-theme-name { font-size:11px; font-weight:550; color:var(--bd-ink); text-align:center; }
+.bd-app .bd-wechat-digest { min-height:54px; line-height:1.6; resize:vertical; }
+.bd-wechat-actions { display:flex; gap:8px; }
+.bd-wechat-actions .bd-btn { flex:1; }
+.bd-wechat-progress { margin-top:8px; font-size:11px; color:var(--bd-muted); }
+.bd-wechat-hint { margin-top:8px; font-size:11px; line-height:1.6; color:var(--bd-muted); }
+.bd-wechat-stage { align-items:center; justify-content:flex-start; overflow:auto; padding:16px 0 24px; }
+.bd-wechat-phone { flex:0 0 auto; width:390px; max-width:94%; height:100%; min-height:420px; display:flex; flex-direction:column; border:1px solid var(--bd-line); border-radius:18px; background:#ffffff; box-shadow:0 8px 30px rgba(0,0,0,.10); overflow:hidden; }
+.bd-wechat-frame { flex:1; width:100%; border:0; background:#ffffff; }
+.bd-wechat-stage-note { flex:0 0 auto; margin-top:10px; font-size:11px; color:var(--bd-muted); }
+.bd-settings .bd-settings-port { flex:0 0 84px; width:84px; }
+.bd-settings .bd-settings-textarea { flex:1; height:auto; min-height:72px; line-height:1.5; resize:vertical; font-size:11px; }
+
+/* 分组卡片设置（参考 banana-reader 的 gr-settings-group） */
+.bd-settings .bd-settings-group { min-width:0; margin:0 0 16px; border:1px solid var(--bd-line); border-radius:10px; background:transparent; overflow:hidden; }
+.bd-settings .bd-settings-group-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 16px; border-bottom:1px solid var(--bd-line); background:color-mix(in srgb,var(--bd-surface) 45%,transparent); }
+.bd-settings .bd-settings-group-head .bd-settings-section { margin:0; }
+.bd-settings .bd-settings-group-body { min-width:0; padding:2px 16px; }
+.bd-settings .bd-settings-group-body > .bd-settings-row { border-bottom:1px solid var(--bd-line); }
+.bd-settings .bd-settings-group-body > :last-child { border-bottom:0; }
+.bd-settings .bd-settings-group-body > .bd-settings-description { margin:0; padding:12px 0; }
+.bd-settings .bd-settings-group-body > .bd-settings-description:not(:last-child) { border-bottom:1px solid var(--bd-line); }
+.bd-settings .bd-settings-group-body > .bd-settings-footer { margin-bottom:6px; }
+.bd-settings .bd-settings-description .bd-settings-link { margin-left:6px; color:var(--text-accent); text-decoration:none; }
+.bd-settings .bd-settings-description .bd-settings-link:hover { text-decoration:underline; }
+
+
+/* ================= X 发布 ================= */
+
+.bd-x-stage { align-items:center; justify-content:flex-start; overflow:auto; padding:16px 0 24px; }
+.bd-x-thread { flex:0 0 auto; width:520px; max-width:96%; display:flex; flex-direction:column; gap:10px; }
+.bd-x-card { border:1px solid var(--bd-line); border-radius:14px; background:#ffffff; color:#0f1419; padding:12px 14px; }
+.bd-x-card-head { display:flex; align-items:center; gap:10px; }
+.bd-x-avatar { flex:0 0 36px; width:36px; height:36px; border-radius:50%; background:#1d9bf0; color:#ffffff; display:flex; align-items:center; justify-content:center; font-weight:700; }
+.bd-x-who { flex:1; min-width:0; }
+.bd-x-name { font-weight:700; font-size:13px; color:#0f1419; }
+.bd-x-meta { font-size:11px; color:#536471; }
+.bd-x-card-text { margin-top:6px; font-size:14px; line-height:1.6; white-space:pre-wrap; overflow-wrap:anywhere; }
+.bd-x-card-images { margin-top:8px; }
+.bd-x-card-images img { width:100%; border-radius:12px; display:block; }
+.bd-x-card-images.is-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+.bd-x-card-images.is-grid img { height:100px; object-fit:cover; }
+.bd-x-link { margin-top:6px; font-size:11px; color:#1d9bf0; overflow-wrap:anywhere; }
+.bd-x-tweet { border:1px solid var(--bd-line); border-radius:8px; padding:8px; margin-bottom:8px; }
+.bd-x-tweet.is-posted { opacity:.65; }
+.bd-x-tweet-head { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+.bd-x-tweet-index { flex:0 0 20px; width:20px; height:20px; border-radius:50%; background:var(--bd-surface); border:1px solid var(--bd-line); font-size:11px; display:flex; align-items:center; justify-content:center; font-weight:600; }
+.bd-x-count { margin-left:auto; font-size:11px; color:var(--bd-muted); font-variant-numeric:tabular-nums; }
+.bd-x-count.is-over { color:var(--text-error); font-weight:650; }
+.bd-x-tweet-actions { display:flex; gap:4px; }
+.bd-x-posted { font-size:11px; color:var(--bd-muted); }
+.bd-x-images { display:flex; gap:6px; margin-bottom:6px; flex-wrap:wrap; }
+.bd-x-image { position:relative; width:52px; height:52px; border-radius:6px; overflow:hidden; border:1px solid var(--bd-line); }
+.bd-x-image img { width:100%; height:100%; object-fit:cover; }
+.bd-x-image-remove { position:absolute; top:0; right:0; width:16px; height:16px; line-height:15px; text-align:center; background:rgba(0,0,0,.6); color:#ffffff; font-size:12px; cursor:pointer; border-radius:0 0 0 6px; }
+.bd-app .bd-x-text { min-height:64px; line-height:1.6; resize:vertical; }
+.bd-figure-plan-actions { display:flex; gap:6px; margin-top:8px; }
+.bd-figure-plan-actions .bd-btn { padding:4px 8px; font-size:11px; }
+.bd-figure-plan-list { max-height:300px; overflow-y:auto; padding-right:4px; }
+.bd-figure-adjust { margin-top:10px; }
+.bd-cover-retry-row { display:flex; margin-top:6px; }
+.bd-cover-retry-row .bd-btn { padding:4px 10px; font-size:11px; color:var(--bd-muted); }

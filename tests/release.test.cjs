@@ -48,6 +48,16 @@ test('standard three-file release loads without sibling modules, assets, network
       const bytes=Buffer.from(preview.split(',')[1],'base64');
       assert.equal(bytes.toString('ascii',0,4),'RIFF');assert.equal(bytes.toString('ascii',8,12),'WEBP');
     }
+    const styles=Plugin.testHooks.promptTemplates({promptTemplates:[]}).filter(item=>item.coverPreviewSheet);
+    assert.equal(styles.length,30);
+    for(const template of styles){
+      const preview=Plugin.testHooks.BDView.prototype.templatePreview.call({},template);
+      assert.ok(Plugin.testHooks.BDView.prototype.templatePreview.call({},template,'figure')===preview,'Bundled body style preview must load without sibling assets: '+template.id);
+      assert.match(preview,/^data:image\/svg\+xml;charset=utf-8,/);
+      const svg=decodeURIComponent(preview.split(',').slice(1).join(','));
+      assert.match(svg,/<image[^>]+href="data:image\/webp;base64,/);
+      assert.ok(!/href="(?:https?:|file:|app:)/.test(svg));
+    }
     const app={vault:{adapter:{exists:async()=>true,mkdir:async()=>{},getBasePath(){throw new Error('Unexpected installed module lookup');}},on:()=>({})},workspace:{on:()=>({})}};
     const plugin=new Plugin(app); await plugin.onload();
     assert.equal(typeof plugin.layout.renderNeonCover,'function');
@@ -62,6 +72,16 @@ test('both bundled preview images remain available without an installed asset di
   const preview=hooks.BDView.prototype.templatePreview;
   assert.match(preview.call({}, {previewAsset:'dan-koe'}),/^data:image\/png;base64,/);
   assert.match(preview.call({}, {previewAsset:'neon-card'}),/^data:image\/svg\+xml;base64,/);
+});
+test('body template library shows available style samples instead of generic layout placeholders',()=>{
+  const templates=hooks.promptTemplates({promptTemplates:[]}).filter(item=>item.coverPreviewAsset||item.coverPreviewSheet||item.coverPreviewSvg||item.previewAsset);
+  assert.equal(templates.length,59);
+  for(const template of templates){
+    const cover=hooks.BDView.prototype.templatePreview.call({},template,'cover');
+    const body=hooks.BDView.prototype.templatePreview.call({},template,'figure');
+    assert.ok(body===cover,'Body picker must retain the visual style sample: '+template.id);
+    if(body.startsWith('data:image/svg+xml;'))assert.ok(!/SCENE STUDY|LAYOUT STUDY/.test(decodeURIComponent(body)));
+  }
 });
 test('legacy service migration preserves selection, secrets, sessions and custom paths',()=>{
   const original={model:'old-model',codexPath:'/custom/codex',outputFolder:'assets/Examples',sessions:{'Article.md':{title:'Fixture'}}};
@@ -131,7 +151,7 @@ test('template dialogs preserve the host keyboard scope when opened for covers o
 
 test('new article recipes render chosen dimensions and keep cover titles out of body illustrations',()=>{
   const {EXTRA_TEMPLATES}=require('../src/templates/catalog.js');
-  assert.equal(EXTRA_TEMPLATES.length,35);
+  assert.equal(EXTRA_TEMPLATES.length,65);
   for(const template of EXTRA_TEMPLATES){
     const state={platform:'custom',customW:1600,customH:640,textLevel:'title'};
     const cover=hooks.renderTemplatePrompt(template,state,'事实与观点','A bridge connecting two libraries');
@@ -144,16 +164,16 @@ test('new article recipes render chosen dimensions and keep cover titles out of 
     assert.ok(figure.includes('1200 x 800'));assert.ok(figure.includes('Never use the article title as a headline'));
     assert.ok(!figure.includes('事实与观点'));assert.ok(!/\{(?:concept|width|height|ratio|text_rule)\}/.test(figure));
     const preview=hooks.BDView.prototype.templatePreview.call({},template);
-    if(template.coverPreviewKind==='typeset-example'){assert.ok(preview.startsWith('data:image/svg+xml;'));assert.ok(decodeURIComponent(preview).includes('<svg'));}
+    if(template.coverPreviewKind==='typeset-example'||template.coverPreviewKind==='generated-style-sample'){assert.ok(preview.startsWith('data:image/svg+xml;'));assert.ok(decodeURIComponent(preview).includes('<svg'));}
     else if(template.coverReady){assert.ok(preview.startsWith('data:image/webp;'));assert.equal(template.coverPreviewKind,'generated-sample');}
     else {assert.ok(preview.startsWith('data:image/svg+xml;'));assert.ok(decodeURIComponent(preview).includes('构图示意'));}
-    const bodyPreview=hooks.BDView.prototype.templatePreview.call({},template,'figure');assert.ok(bodyPreview.startsWith('data:image/svg+xml;'));
+    const bodyPreview=hooks.BDView.prototype.templatePreview.call({},template,'figure');assert.match(bodyPreview,/^data:image\/(?:svg\+xml|webp);/);
   }
 });
 test('catalog expansion preserves user overrides, copied templates and legacy IDs without mutating settings',()=>{
   const settings={promptTemplates:[{id:'gpt-paper-world',name:'我的纸雕',planningPrompt:'My plan',imagePrompt:'My image'},{id:'private-copy',name:'个人模板',planningPrompt:'Private plan',imagePrompt:'Private image'}]};
   const before=JSON.stringify(settings),templates=hooks.promptTemplates(settings);
-  assert.equal(templates.length,39);assert.equal(new Set(templates.map(t=>t.id)).size,39);
+  assert.equal(templates.length,69);assert.equal(new Set(templates.map(t=>t.id)).size,69);
   assert.equal(templates.find(t=>t.id==='gpt-paper-world').imagePrompt,'My image');
   for(const id of ['blank','dan-koe','neon-card','private-copy'])assert.ok(templates.some(t=>t.id===id));
   assert.equal(JSON.stringify(settings),before);
@@ -161,10 +181,10 @@ test('catalog expansion preserves user overrides, copied templates and legacy ID
 
 test('cover library separates validated covers from body diagrams while preserving active and custom choices',()=>{
   const settings={promptTemplates:[]};
-  const covers=hooks.templateChoices(settings,'cover');assert.equal(covers.length,30);
+  const covers=hooks.templateChoices(settings,'cover');assert.equal(covers.length,60);
   for(const id of ['gpt-concept-type','gpt-cinematic-story','gpt-object-editorial','gpt-human-narrative','gpt-opinion-collage','gpt-documentary-lens','gpt-literary-painting','dan-koe','neon-card','blank'])assert.ok(covers.some(t=>t.id===id));
   assert.ok(!covers.some(t=>t.id==='gpt-knowledge-flow'));
-  assert.equal(hooks.templateChoices(settings,'figure').length,38);
+  assert.equal(hooks.templateChoices(settings,'figure').length,68);
   assert.ok(hooks.templateChoices(settings,'cover','gpt-knowledge-flow').some(t=>t.id==='gpt-knowledge-flow'));
   const custom={promptTemplates:[{id:'gpt-paper-world',name:'我的纸雕',planningPrompt:'My plan',imagePrompt:'My image'}]};
   assert.ok(hooks.templateChoices(custom,'cover').some(t=>t.id==='gpt-paper-world'));
@@ -266,12 +286,12 @@ test('management controls hide, show, delete and restore; saving a copy keeps th
 });
 
 
-test('thirty cover choices include fourteen traceable directions with article-independent offline examples',()=>{
+test('earlier thirty cover choices retain fourteen traceable directions with article-independent offline examples',()=>{
   const report=require('../assets/template-research.json');
   const {RESEARCHED_TEMPLATES}=require('../src/templates/researched');
   assert.equal(RESEARCHED_TEMPLATES.length,14);assert.equal(report.directions.length,14);
   const covers=hooks.templateChoices({promptTemplates:[]},'cover');
-  assert.equal(covers.length,30);assert.equal(covers[0].id,'blank');
+  assert.equal(covers.length,60);assert.equal(covers[0].id,'blank');
   const sources=new Set(report.sources.map(source=>source.id));
   const samples=new Set();
   for(const template of RESEARCHED_TEMPLATES){
@@ -290,4 +310,82 @@ test('thirty cover choices include fourteen traceable directions with article-in
   }
   const github=report.sources.filter(source=>source.kind==='github');
   assert.ok(github.length>=7);assert.ok(github.filter(source=>source.stars>=10000).length>=4);
+});
+
+test('thirty added visual styles keep typography and composition in cover prompts and out of body hierarchy',()=>{
+  const {STYLE_TEMPLATES,SAMPLE_TITLE}=require('../src/templates/styles');
+  assert.equal(STYLE_TEMPLATES.length,30);
+  for(const key of ['typography','composition','material'])assert.equal(new Set(STYLE_TEMPLATES.map(item=>item.styleProfile[key])).size,30);
+  const state={platform:'custom',customW:1080,customH:1440,textLevel:'title'};
+  for(const template of STYLE_TEMPLATES){
+    const cover=hooks.renderTemplatePrompt(template,state,'当前文章，保持完整！','One original article-specific scene');
+    assert.ok(cover.includes('当前文章，保持完整！'));assert.ok(cover.includes('1080 x 1440'));
+    for(const rule of Object.values(template.styleProfile))assert.ok(cover.includes(rule));
+    assert.ok(!cover.includes(SAMPLE_TITLE));assert.ok(!template.planningPrompt.includes(SAMPLE_TITLE));
+    const noText=hooks.renderTemplatePrompt(template,{...state,textLevel:'none'},'不要泄漏这段标题','A quiet original scene');
+    assert.ok(!noText.includes('不要泄漏这段标题'));assert.ok(noText.includes('remove ALL lettering'));
+    const body=hooks.renderFigureRecipe(hooks.figureRecipe(template),{scene:'One meaningful paragraph scene',w:1200,h:800});
+    assert.ok(body.includes(template.styleProfile.material));
+    assert.ok(!body.includes(template.styleProfile.typography));assert.ok(!body.includes(template.styleProfile.composition));
+    assert.ok(body.includes('Never use the article title as a headline'));
+    assert.notEqual(i18n.translate(template.name,'en'),template.name);
+    assert.notEqual(i18n.translate(template.description,'en'),template.description);
+  }
+  // These cover styles must be allowed their actual type systems, not a shared heavy-Heiti rule.
+  for(const id of ['style-magazine','style-chinese','style-watercolor','style-pixel','style-clay','style-patchwork']){
+    const prompt=hooks.renderTemplatePrompt(STYLE_TEMPLATES.find(item=>item.id===id),state,'中文与 AI，完整标题','An original scene');
+    assert.ok(!prompt.includes('Typography: a clean modern Chinese sans-serif display headline, heavy Heiti'));
+  }
+});
+
+test('generated style previews map thirty unique bounded cells to five offline sheets',()=>{
+  const pack=require('../assets/style-previews.json');
+  const {STYLE_TEMPLATES,stylePreview,SAMPLE_TITLE}=require('../src/templates/styles');
+  assert.equal(pack.sampleTitle,SAMPLE_TITLE);assert.equal(Object.keys(pack.sheets).length,5);
+  const assigned=new Set();
+  for(const [key,sheet] of Object.entries(pack.sheets)){
+    assert.equal(sheet.frames.length,6);
+    assert.match(sheet.image,/^data:image\/webp;base64,/);
+    const bytes=Buffer.from(sheet.image.split(',')[1],'base64');
+    assert.equal(bytes.toString('ascii',0,4),'RIFF');assert.equal(bytes.toString('ascii',8,12),'WEBP');
+    let area=0;
+    for(const [x,y,w,h] of sheet.frames){assert.ok(x>=0&&y>=0&&w>0&&h>0&&x+w<=sheet.width&&y+h<=sheet.height);area+=w*h;}
+    assert.equal(area,sheet.width*sheet.height);
+    for(let i=0;i<6;i++)for(let j=i+1;j<6;j++){
+      const [x,y,w,h]=sheet.frames[i], [a,b,c,d]=sheet.frames[j];
+      assert.ok(x+w<=a||a+c<=x||y+h<=b||b+d<=y,'Preview cells must not overlap: '+key);
+    }
+  }
+  for(const template of STYLE_TEMPLATES){
+    const ref=template.coverPreviewSheet,key=ref.key+':'+ref.cell;
+    assert.ok(!assigned.has(key));assigned.add(key);
+    const sheet=pack.sheets[ref.key],svg=stylePreview(ref);
+    assert.ok(svg.includes('viewBox="'+sheet.frames[ref.cell].join(' ')+'"'));
+    const [x,y,w,h]=sheet.frames[ref.cell];
+    assert.ok(svg.includes('width="'+w+'" height="'+h+'" viewBox='));
+    assert.ok(svg.includes('clip-path="url(#sample-frame)"'));
+    assert.ok(svg.includes('<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'"/>'));
+    assert.ok(svg.includes(sheet.image));assert.ok(!/<script|href="(?:https?:|file:)/.test(svg));
+  }
+  assert.equal(assigned.size,30);
+  assert.equal(stylePreview({key:'unknown',cell:0}),'');
+  assert.equal(stylePreview({key:'editorial',cell:6}),'');
+  assert.equal(stylePreview({key:'__proto__',cell:0}),'');
+  assert.equal(stylePreview(null),'');
+});
+
+test('additive styles preserve every earlier built-in and custom choices under both language settings',()=>{
+  const templates=hooks.promptTemplates({promptTemplates:[]}),legacy=templates.filter(item=>!item.id.startsWith('style-'));
+  assert.equal(legacy.length,38);assert.equal(templates[0].id,'blank');
+  for(const id of ['dan-koe','neon-card','editorial-list','editorial-swiss','cover-photo-split','cover-portrait-cutout','cover-ink-double'])assert.ok(legacy.some(item=>item.id===id));
+  const saved={promptTemplates:[{id:'style-magazine',name:'我的杂志',description:'保留说明',planningPrompt:'Saved plan',imagePrompt:'Saved image'},{id:'my-style',name:'我的模板',planningPrompt:'Private plan',imagePrompt:'Private image'}],hiddenPromptTemplates:['style-fresh']};
+  const before=JSON.stringify(saved);
+  for(const language of ['zh','en']){
+    i18n.configureLocale(()=>language);
+    const selected=hooks.promptTemplates(saved).find(item=>item.id==='style-magazine');
+    assert.equal(hooks.templateLabel(selected,saved),'我的杂志');assert.equal(selected.imagePrompt,'Saved image');
+    const choices=hooks.templateChoices(saved,'cover');assert.equal(choices[0].id,'blank');assert.ok(!choices.some(item=>item.id==='style-fresh'));
+    assert.ok(choices.some(item=>item.id==='my-style'));assert.ok(choices.some(item=>item.id==='dan-koe'));
+  }
+  assert.equal(JSON.stringify(saved),before);i18n.configureLocale(()=> 'zh');
 });
