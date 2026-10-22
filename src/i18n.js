@@ -3,6 +3,7 @@
 // Chinese source messages are stable keys. Translate only authored UI strings;
 // article text, prompts, paths, user names and provider responses are never scanned.
 const EN = Object.freeze({
+  "已选": "Selected",
   "风格参考": "Style reference",
   "Agent 自动选择": "Agent selects a template",
   "正在根据文章选择模板…": "Choosing templates for this article…",

@@ -15,7 +15,7 @@ const DIRECTIONS = [
   {
     id: 'editorial-swiss', name: '瑞士网格 · 理性秩序', description: '适合商业分析、方法思考与产品观点，严格对齐、少量强调',
     preview: example('#f3f1e9', `${text(44,48,12,'THINKING / PERSPECTIVE','#252525',650)}${line(44,69,856,69)}${text(41,169,64,'把复杂问题')}${text(41,246,64,'想清楚')}<circle cx="725" cy="198" r="76" fill="#df4433"/><circle cx="725" cy="198" r="46" fill="#f3f1e9"/><path d="M649 198h152m-76-76v152" stroke="#171717" stroke-width="2"/>${line(44,313,856,313)}${text(44,343,13,'从问题到判断','#55534e',500)}${text(685,343,13,'一条清晰的思路','#55534e',500)}`),
-    planning: '提炼文章中一个核心判断或方法，按严格网格规划一个主标题、一个有解释力的几何关系与充分留白。用对齐、留白和尺度表达清晰的逻辑，几何形态必须对应观点，不假装成真实数据图表。标题默认左对齐、两行均衡，不编造期号或研究结论。',
+    planning: '标题、栏线与几何关系共享一条明确的对齐边；标题先读，关系图后读，短标签最后读。横版与竖版重新分配区域，不能只是缩放。提炼文章中一个核心判断或方法，按严格网格规划一个主标题、一个有解释力的几何关系与充分留白。用对齐、留白和尺度表达清晰的逻辑，几何形态必须对应观点，不假装成真实数据图表。标题默认左对齐、两行均衡，不编造期号或研究结论。',
     art: 'Swiss international typographic editorial design, disciplined modular grid, flush-left heavyweight modern Chinese grotesk, precise shared alignment edges and generous margins. Warm off-white paper, near-black ink and one deliberate vermilion geometric intervention that expresses the supplied idea. Strong asymmetric balance, fine hairline rules, exceptional optical kerning, restrained print texture. Large readable complete headline with only one accent. Avoid presentation-slide boxes, pseudo-data, random numerals, gradients, soft UI cards and scattered decorative icons.'
   },
   {

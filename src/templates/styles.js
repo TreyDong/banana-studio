@@ -6,7 +6,7 @@ const SAMPLE_TITLE = '生活，值得重新想象';
 const STYLES = [
   {
     id: 'style-magazine', name: '杂志风', en: 'Magazine', description: '全幅摄影、精致宋体与穿插字级，像一张文化刊物封面', descriptionEn: 'Full-bleed photography, refined serif type and layered editorial hierarchy', sheet: 'editorial', cell: 0,
-    type: 'High-contrast Chinese Song/Ming editorial serif paired with a restrained sans only when needed. Fine-to-thick stroke contrast, deliberately varied type sizes and elegant optical spacing; keep small-format readability. Do not default to heavy Heiti.',
+    type: 'High-contrast Chinese Song/Ming editorial serif for the complete headline, paired with a restrained Chinese sans only for explicitly requested short labels. Separate headline and supporting roles; use at most these two type families. Fine-to-thick stroke contrast, deliberately varied type sizes and elegant optical spacing; keep small-format readability. Do not default to heavy Heiti.',
     layout: 'Build one full-bleed photographic field. Let the complete headline cross or nest into its quiet architectural planes, with a sophisticated large/small hierarchy. Typography and image may overlap without obscuring a face or any title character. Do not divide the canvas into a fixed left text/right picture pair.',
     material: 'Culture and fashion editorial photography: observed gesture or sculptural environmental detail, real material texture, deliberate lens perspective and sculpted daylight. A small rich neutral palette, photographic tonal depth and tactile matte magazine print.',
     avoid: 'Fake mastheads, cover lines, issue numbers, publisher identity, decorative UI cards or copied magazine compositions.'
@@ -48,7 +48,7 @@ const STYLES = [
   },
   {
     id: 'style-film', name: '电影风', en: 'Cinematic poster', description: '叙事场景、戏剧光影与底部片名字级，让画面先讲故事', descriptionEn: 'Narrative scenes, dramatic light and restrained lower poster typography', sheet: 'screen', cell: 0,
-    type: 'Condensed but clean Chinese Song-serif film-poster lettering, deliberate tracking and restrained weight. A modest complete two-line headline can sit low in the frame; no giant central slogan obscuring the scene.',
+    type: 'Condensed but clean Chinese Song-serif film-poster lettering, deliberate tracking and restrained weight. A modest complete headline can sit in a quiet region low in the frame. Break by Chinese semantic phrases; reserve enough contrast and clear space around every character. Recompose that quiet region for a portrait rather than cropping the landscape. No giant central slogan obscuring the scene.',
     layout: 'One immersive full-bleed scene with foreground, middle ground and distance. Camera angle, a meaningful action and a light path lead the eye before the lower title. Recompose for portrait without adding letterbox bars, fake credits or a separate blank panel.',
     material: 'Cinematic photographic realism, motivated practical or daylight sources, deep but readable shadows, atmospheric depth, restrained lens bloom and film grain. Color grade serves the article mood, not a fixed teal-orange filter.',
     avoid: 'Movie franchise imagery, copied actor likeness, fake credits, release dates, awards, cinema logos or meaningless tiny people.'

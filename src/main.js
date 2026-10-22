@@ -486,7 +486,13 @@ class TemplateLibraryModal extends Modal {
         if (template.id === 'blank' && !preview) { const empty = card.createDiv('bd-library-blank-preview'); const sheet = empty.createDiv('bd-library-blank-sheet'); setIcon(sheet, 'plus'); }
         else if (preview) card.createEl('img', { attr: { src: preview, alt: this.view.templateLabel(template) + t('模板预览'), loading: 'lazy' } });
         else { const empty = card.createDiv('bd-library-no-preview'); setIcon(empty, 'image'); empty.createSpan({ text: t('暂无预览') }); }
-        card.createSpan({ cls: 'bd-library-name', text: this.view.templateLabel(template), attr: { 'data-selected-label': t(' · 已选') } });
+        const heading = card.createDiv('bd-library-card-heading');
+        heading.createSpan({ cls: 'bd-library-name', text: this.view.templateLabel(template) });
+        if (card.getAttribute('aria-pressed') === 'true') {
+          const selected = heading.createSpan('bd-library-selected');
+          const icon = selected.createSpan({ cls: 'bd-icon', attr: { 'aria-hidden': 'true' } }); setIcon(icon, 'check');
+          selected.createSpan({ text: t('已选') });
+        }
         if (template.description) card.createSpan({ cls: 'bd-library-description', text: this.view.templateLabel(template, 'description') });
         if (template.coverPreviewKind === 'typeset-example' && this.templateScope === 'cover') card.createSpan({ cls: 'bd-library-preview-label', text: t('排版示例') });
         if (template.coverPreviewKind === 'generated-style-sample' && this.templateScope === 'cover') card.createSpan({ cls: 'bd-library-preview-label', text: t('风格示例') });
@@ -1668,7 +1674,12 @@ class BDView extends ItemView {
         item.createSpan({ cls: 'bd-figure-plan-number', text: String(i + 1).padStart(2, '0'), attr: { 'aria-hidden': 'true' } });
         const body = item.createDiv('bd-figure-plan-item-body'), head = body.createDiv('bd-figure-plan-item-head');
         head.createEl('h3', { cls: 'bd-figure-plan-title', text: fg.title });
-        head.createSpan({ cls: 'bd-figure-plan-status' + (fg.vaultPath ? ' is-done' : fg.error ? ' is-error' : ''), text: fg.status === 'running' ? t('生成中') : fg.vaultPath ? t('已完成') : fg.status === 'stopped' ? t('已停止') : fg.error ? t('待重试') : fg.status === 'planned' ? t('待生成') : t('排队中') });
+        const statusKey = fg.status === 'running' ? 'running' : fg.vaultPath ? 'done' : fg.status === 'stopped' ? 'stopped' : fg.error ? 'error' : fg.status === 'planned' ? 'planned' : 'queued';
+        const statusLabel = { running: t('生成中'), done: t('已完成'), stopped: t('已停止'), error: t('待重试'), planned: t('待生成'), queued: t('排队中') };
+        const badge = head.createSpan({ cls: 'bd-figure-plan-status is-' + statusKey });
+        const statusIcon = badge.createSpan({ cls: 'bd-icon', attr: { 'aria-hidden': 'true' } });
+        setIcon(statusIcon, { running: 'loader', done: 'check', stopped: 'pause', error: 'circle-alert', planned: 'circle-dashed', queued: 'clock' }[statusKey]);
+        badge.createSpan({ text: statusLabel[statusKey] });
         body.createEl('p', { cls: 'bd-figure-plan-purpose', text: fg.purpose });
         const meta = body.createDiv('bd-figure-plan-meta');
         meta.createSpan({ cls: 'bd-figure-plan-location', text: this.figurePositionLabel(fg) });
