@@ -45,6 +45,56 @@ function load(filename, expose=false) {
 }
 const sourcePlugin=load(path.join(root,'src/main.js'),true);
 const hooks=sourcePlugin.testHooks;
+test('ribbon launch captures the active note before focusing a new or existing workbench',async()=>{
+  for(const existing of [false,true]){
+    let active={path:'Current.md',extension:'md'},selected,revealed=false;
+    const leaf={view:{refreshForFile(file){selected=file;return true;}},async setViewState(){active=null;}};
+    const plugin={lastMarkdownPath:'Old.md',app:{vault:{getAbstractFileByPath:()=>({path:'Old.md',extension:'md'})},workspace:{getActiveFile:()=>active,getLeavesOfType:()=>existing?[leaf]:[],getLeaf:()=>leaf,revealLeaf(){revealed=true;}}}};
+    await sourcePlugin.prototype.activateView.call(plugin);
+    assert.equal(selected.path,'Current.md');assert.equal(plugin.lastMarkdownPath,'Current.md');assert.equal(revealed,true);
+  }
+});
+test('opening the workbench prefers a recently focused note over its old remembered article',async()=>{
+  let selected;const recent={path:'Recent.md',extension:'md'},old={path:'Old.md',extension:'md'};
+  const view={plugin:{lastMarkdownPath:'Recent.md',settings:{lastArticle:'Old.md'}},app:{workspace:{getActiveFile:()=>null,getLeavesOfType:()=>[]},vault:{getAbstractFileByPath:p=>p==='Recent.md'?recent:old}},useArticle(file){selected=file;},render(){}};
+  await hooks.BDView.prototype.onOpen.call(view);assert.equal(selected,recent);
+});
+test('launching while busy keeps the job article; selecting it again preserves the draft',()=>{
+  const file={path:'Current.md',extension:'md'},view={articlePath:file.path,busy:true,useArticle(){throw new Error('Draft was reset');}};
+  assert.equal(hooks.BDView.prototype.refreshForFile.call(view,file),true);
+  assert.equal(hooks.BDView.prototype.refreshForFile.call(view,{path:'Other.md',extension:'md'}),false);
+});
+test('local references import multiple images using note attachment paths without replacing existing files',async()=>{
+  const png=Buffer.from('89504e470d0a1a0a','hex'),files=new Map([['assets/photo.png','original']]),requested=[];
+  const view={articlePath:'Notes/Current.md',refs:[],activeFile:()=>({path:'Notes/Current.md'}),render(){},remember(){this.saved=this.refs.map(f=>f.path);},app:{fileManager:{async getAvailablePathForAttachment(name,source){requested.push(source);let dest='assets/'+name,n=1;while(files.has(dest))dest='assets/'+n+++'-'+name;return dest;}},vault:{async createBinary(dest,data){assert.equal(files.has(dest),false);files.set(dest,data);return {path:dest,extension:'png'};}}}};
+  const fixture=()=>({name:'photo.png',size:png.length,async arrayBuffer(){return Uint8Array.from(png).buffer;}});
+  const added=await hooks.BDView.prototype.addLocalReferences.call(view,[fixture(),fixture()],view.articlePath);
+  assert.equal(added.length,2);assert.equal(files.get('assets/photo.png'),'original');assert.equal(requested.join(','),'Notes/Current.md,Notes/Current.md');assert.equal(view.saved.length,2);assert.equal(view.busy,false);
+});
+test('local reference selection handles cancellation, changed articles, unsupported files and oversized files',async()=>{
+  i18n.configureLocale(()=>'zh');
+  let reads=0,writes=0;
+  const view={articlePath:'Current.md',refs:[],activeFile:()=>({}),render(){},remember(){},app:{fileManager:{getAvailablePathForAttachment(){writes++;}},vault:{}}};
+  assert.equal((await hooks.BDView.prototype.addLocalReferences.call(view,[],view.articlePath)).length,0);
+  await assert.rejects(hooks.BDView.prototype.addLocalReferences.call(view,[{}],'Old.md'),/重新添加/);
+  const bad=[{name:'text.png',size:4,arrayBuffer:async()=>Uint8Array.from([1,2,3,4]).buffer},{name:'large.png',size:61*1024*1024,arrayBuffer(){reads++;}}];
+  assert.equal((await hooks.BDView.prototype.addLocalReferences.call(view,bad,view.articlePath)).length,0);assert.equal(writes,0);assert.equal(reads,0);assert.match(view.error,/PNG/);assert.match(view.error,/60 MB/);assert.equal(view.busy,false);
+});
+test('the reference button opens a multi-image local picker rather than scanning the vault',()=>{
+  let clicked=false,received;const input={click(){clicked=true;}};
+  const view={articlePath:'Current.md',activeFile:()=>({}),contentEl:{ownerDocument:{createElement:()=>input}},addLocalReferences(files,source){received={files,source};return Promise.resolve([]);}};
+  hooks.BDView.prototype.pickLocalReferences.call(view);assert.equal(clicked,true);assert.equal(input.type,'file');assert.equal(input.multiple,true);assert.match(input.accept,/image\/webp/);
+  input.files=[{name:'fixture.png'}];input.onchange();assert.equal(received.source,'Current.md');assert.equal(received.files[0].name,'fixture.png');
+});
+test('article references persist, ignore temporary job refs, and restore only existing images',()=>{
+  const image={path:'assets/ref.png',extension:'png'},text={path:'private.md',extension:'md'};
+  const plugin={settings:{sessions:{}},saveSettings:async()=>{},wechatThemes:require('../src/templates/wechat-themes')};
+  const view=new hooks.BDView({},plugin);view.app={metadataCache:{getFileCache:()=>null},vault:{getAbstractFileByPath:p=>p===image.path?image:p===text.path?text:null}};view.articlePath='Current.md';view.title='Current';view.refs=[image];
+  view.remember();assert.equal(plugin.settings.sessions['Current.md'].referencePaths.join(','),image.path);
+  view.busy=true;view.refs.push({path:'temporary-cover.png'});view.remember();assert.equal(plugin.settings.sessions['Current.md'].referencePaths.join(','),image.path);
+  view.busy=false;clearTimeout(view.saveTimer);view.articlePath='';plugin.settings.sessions['Current.md'].referencePaths.push('missing.png',text.path,image.path);
+  view.useArticle({path:'Current.md',basename:'Current',extension:'md'},false);assert.equal(view.refs.length,1);assert.equal(view.refs[0],image);clearTimeout(view.saveTimer);
+});
 test('an open model menu cannot change a running job and reselecting the current service does not save',async()=>{
   i18n.configureLocale(()=>'zh');let saves=0,renders=0;
   const plugin={settings:{modelServices:{textId:'current',imageId:'image',text:[{id:'current',name:'Current'},{id:'other',name:'Other'}],image:[{id:'image',name:'Image'}]}},async selectConnection(kind,id){saves++;this.settings.modelServices[kind+'Id']=id;}};

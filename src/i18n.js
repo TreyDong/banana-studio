@@ -3,6 +3,18 @@
 // Chinese source messages are stable keys. Translate only authored UI strings;
 // article text, prompts, paths, user names and provider responses are never scanned.
 const EN = Object.freeze({
+  "从电脑添加参考图": "Add reference images from computer",
+  "从笔记库选择图片": "Choose images from vault",
+  "其他参考图来源": "Other reference image sources",
+  "正在添加参考图…": "Adding reference images…",
+  "添加参考图失败：": "Could not add reference images: ",
+  "部分参考图未添加：": "Some reference images were not added: ",
+  "参考图不能超过 60 MB": "Reference images must be 60 MB or smaller",
+  "请选择 PNG、JPEG 或 WebP 图片": "Choose a PNG, JPEG or WebP image",
+  "当前文章或任务已变化，请重新添加参考图": "The article or task changed. Add the reference images again.",
+  "已添加 {count} 张参考图": "Added {count} reference images",
+  "笔记库中暂无图片，可从电脑添加。": "There are no images in this vault yet. Add images from your computer.",
+  "当前任务进行中，结束后再切换文章": "A task is running. Switch articles after it finishes.",
   "原文": "Original article",
   "制作配图": "Create images",
   "预览发布": "Preview & publish",

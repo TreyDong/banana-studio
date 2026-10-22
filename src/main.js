@@ -910,16 +910,20 @@ class BDView extends ItemView {
   async onOpen() {
     this.viewClosed = false;
     const active = this.app.workspace.getActiveFile();
+    const recent = this.app.vault.getAbstractFileByPath(this.plugin.lastMarkdownPath || '');
     const remembered = this.app.vault.getAbstractFileByPath(this.plugin.settings.lastArticle || '');
     const openArticle = this.app.workspace.getLeavesOfType('markdown').map(l => l.view.file).find(f => f?.extension === 'md');
-    this.useArticle(active?.extension === 'md' ? active : remembered?.extension === 'md' ? remembered : openArticle || null, false);
+    this.useArticle(active?.extension === 'md' ? active : recent?.extension === 'md' ? recent : openArticle || (remembered?.extension === 'md' ? remembered : null), false);
     this.render();
     // Model lists are refreshed explicitly; opening an article sends no API request.
   }
   async onClose() { this.viewClosed = true; this.stopTasks(false); this.disposeArtboard(); this.remember(); clearTimeout(this.saveTimer); await this.plugin.saveSettings(); }
   activeFile() { const f = this.app.vault.getAbstractFileByPath(this.articlePath); return f?.extension === 'md' ? f : null; }
   refreshForFile(file) {
-    if (!this.busy && !this.coverChatBusy && !this.insertingFigures && file?.extension === 'md' && file.path !== this.articlePath) this.useArticle(file);
+    if (file?.extension !== 'md') return false;
+    if (file.path === this.articlePath) return true;
+    if (this.busy || this.coverChatBusy || this.insertingFigures || this.operation) return false;
+    this.useArticle(file); return true;
   }
   useArticle(file, render = true) {
     if (this.articlePath) this.remember();
@@ -927,7 +931,8 @@ class BDView extends ItemView {
     this.previewMode = 'canvas'; this.canvasZoom = null;
     const saved = this.plugin.settings.sessions?.[this.articlePath] || {};
     this.title = saved.title ?? articleTitle(this.app, file); this.brief = saved.brief || ''; this.briefSource = saved.briefSource || 'manual';
-    this.state = Object.assign({}, this.state, { templateId: 'blank' }, saved.state || {}); this.state.templateId ||= 'blank'; this.modules = new Set(saved.modules || []); this.refs = [];
+    this.state = Object.assign({}, this.state, { templateId: 'blank' }, saved.state || {}); this.state.templateId ||= 'blank'; this.modules = new Set(saved.modules || []);
+    this.refs = [...new Set(saved.referencePaths || [])].map(p => this.app.vault.getAbstractFileByPath(p)).filter(f => f && /^(png|jpe?g|webp)$/i.test(f.extension));
     this.state.templateMode = templateSelection.selectionMode(saved, 'cover');
     this.coverTemplateReason = saved.coverTemplateReason || '';
     this.promptDraft = saved.promptDraft || ''; this.promptSource = saved.promptSource || ''; this.promptContext = saved.promptContext || ''; this.scene = saved.scene || ''; this.freeDesign = saved.freeDesign || null;
@@ -978,8 +983,9 @@ class BDView extends ItemView {
   remember() {
     if (!this.articlePath) return;
     this.plugin.settings.sessions ||= {};
+    const referencePaths = this.busy || this.coverChatBusy || this.operation ? (this.plugin.settings.sessions[this.articlePath]?.referencePaths || []) : this.refs.map(f => f.path);
     this.plugin.settings.sessions[this.articlePath] = { title: this.title, brief: this.brief, briefSource: this.briefSource, state: this.state, modules: [...this.modules], covers: this.covers, coverCount: this.coverCount, coverBatch: this.coverBatch.map(c => ({ ...c })), coverPath: this.cover?.vaultPath, coverMode: this.cover ? 'edit' : 'new', figures: this.figures.map(({ snapshot, ...figure }) => figure), figureCount: this.figureCount, figureSize: this.figureSize, figureCustomW: this.figureCustomW, figureCustomH: this.figureCustomH, figurePalette: this.figurePalette, figureRendering: this.figureRendering, figureTemplateId: this.figureTemplateId, manualBatchId: this.manualBatchId, figureMode: this.figureMode, figureRequirements: this.figureRequirements, figurePlan: this.figurePlan, figurePlans: this.figurePlans, coverChat: this.coverChat.filter(m => !m.pending).slice(-30), coverChatDraft: this.coverChatDraft, promptDraft: this.promptDraft, promptSource: this.promptSource, promptContext: this.promptContext, scene: this.scene, freeDesign: this.freeDesign, coverCopy: this.coverCopy, copySource: this.copySource, wechatThemeId: this.wechatThemeId, wechatDigest: this.wechatDigest, wechatCoverPath: this.wechatCoverPath, xTweets: this.xTweets.map(t => ({ text: t.text, images: [...t.images], postedId: t.postedId })), xCoverSource: this.xCoverSource };
-    Object.assign(this.plugin.settings.sessions[this.articlePath], { figureTemplateMode: this.figureTemplateMode, coverTemplateReason: this.coverTemplateReason, figureTemplateReason: this.figureTemplateReason });
+    Object.assign(this.plugin.settings.sessions[this.articlePath], { referencePaths, figureTemplateMode: this.figureTemplateMode, coverTemplateReason: this.coverTemplateReason, figureTemplateReason: this.figureTemplateReason });
     clearTimeout(this.saveTimer); this.saveTimer = setTimeout(() => this.plugin.saveSettings().catch(console.error), 250);
   }
   async persistFigures() { this.remember(); clearTimeout(this.saveTimer); await this.plugin.saveSettings(); }
@@ -1178,7 +1184,7 @@ class BDView extends ItemView {
     const compose = panel.createDiv('bd-cover-compose');
     if (this.refs.length) {
       const refs = compose.createDiv('bd-cover-ref-thumbs');
-      for (const file of this.refs) { const remove = this.button(refs, '', () => { this.refs = this.refs.filter(f => f !== file); this.renderBody(); }, 'bd-cover-ref-thumb'); remove.setAttribute('aria-label', t('移除参考图：') + file.basename); remove.createEl('img', { attr: { src: this.resourceOf(file.path), alt: file.basename } }); remove.disabled = this.busy || this.coverChatBusy; }
+      for (const file of this.refs) { const remove = this.button(refs, '', () => { this.refs = this.refs.filter(f => f !== file); this.remember(); this.renderBody(); }, 'bd-cover-ref-thumb'); remove.setAttribute('aria-label', t('移除参考图：') + file.basename); remove.title = t('移除参考图：') + file.basename; remove.createEl('img', { attr: { src: this.resourceOf(file.path), alt: file.basename } }); remove.disabled = this.busy || this.coverChatBusy; }
     }
     compose.createDiv({ cls: 'bd-cover-scope', text: this.cover ? t('当前封面') : t('新封面') });
     const input = compose.createEl('textarea', { cls: 'bd-cover-input', attr: { rows: '3', 'aria-label': t('封面修改要求'), placeholder: this.cover ? t('说说这张图怎么改…') : t('说说想要什么封面…') } });
@@ -1190,14 +1196,16 @@ class BDView extends ItemView {
     const template = this.button(options, this.templatePickerLabel(), () => this.openTemplateLibrary(), 'bd-btn bd-cover-template-button', 'layout-template'); template.setAttribute('aria-label', t('打开模板库') + ': ' + this.templatePickerLabel()); template.title = this.templatePickerLabel(); this.addIcon(template, 'chevron-down');
     const bar = compose.createDiv('bd-cover-compose-bar'), tools = bar.createDiv('bd-cover-tools'), actions = bar.createDiv('bd-cover-actions');
     const model = this.button(tools, t('模型'), anchor => this.openModelMenu(anchor), 'bd-btn bd-model-picker', 'chevron-down'); model.setAttribute('aria-label', t('选择模型')); model.setAttribute('aria-haspopup', 'menu'); model.setAttribute('aria-expanded', 'false'); model.title = this.modelSummary();
-    const ref = this.button(tools, '', () => { const files = this.app.vault.getFiles().filter(f => /^(png|jpe?g|webp)$/.test(f.extension)); if (!files.length) throw new Error(t('笔记库里还没有图片')); new RefPicker(this.app, files, file => { if (this.busy || this.coverChatBusy) return; if (!this.refs.includes(file)) this.refs.push(file); this.renderBody(); }).open(); }, 'bd-btn bd-icon-button', 'paperclip'); ref.setAttribute('aria-label', t('添加参考图')); ref.title = t('添加参考图');
+    const attachments = tools.createDiv('bd-attachment-buttons');
+    const ref = this.button(attachments, '', () => this.pickLocalReferences(), 'bd-btn bd-icon-button', 'paperclip'); ref.setAttribute('aria-label', t('从电脑添加参考图')); ref.title = t('从电脑添加参考图');
+    const source = this.button(attachments, '', anchor => this.openReferenceMenu(anchor), 'bd-btn bd-icon-button bd-attachment-source', 'chevron-down'); source.setAttribute('aria-label', t('其他参考图来源')); source.setAttribute('aria-haspopup', 'menu'); source.title = t('其他参考图来源');
     const quantity = actions.createEl('select', { cls: 'bd-cover-count', attr: { 'aria-label': t('生成张数'), title: t('一次生成几张封面') } });
     for (let n = 1; n <= MAX_COVER_COUNT; n++) quantity.createEl('option', { value: String(n), text: imageCount(n) });
     quantity.value = String(this.coverCount); quantity.disabled = this.busy || this.coverChatBusy || !this.activeFile();
     quantity.onchange = () => { this.coverCount = coverQuantity(quantity.value); this.remember(); };
     const stop = this.renderStopButton(actions, 'bd-btn bd-primary bd-cover-send');
     if (!stop) { const send = this.button(actions, this.cover ? t('修改') : t('生成'), () => this.submitCoverChat(), 'bd-btn bd-primary bd-cover-send', 'arrow-up'); send.setAttribute('aria-label', this.cover ? t('修改封面') : t('生成封面')); send.title = t('Enter 发送，Shift+Enter 换行'); send.disabled = this.busy || this.coverChatBusy || !this.activeFile(); }
-    for (const button of [template, ref, model]) button.disabled = this.busy || this.coverChatBusy || !this.activeFile();
+    for (const button of [template, ref, source, model]) button.disabled = this.busy || this.coverChatBusy || !this.activeFile();
     const status = this.error || this.progress;
     if (status) { const prefix = this.coverBatchSlot ? t('第 ') + this.coverBatchSlot.index + ' / ' + this.coverBatch.length + t(' 张 · ') : ''; const message = compose.createDiv({ cls: 'bd-status' + (this.error ? ' is-error' : ''), text: prefix + status }); message.setAttribute('role', 'status'); }
     const failedSlots = (this.coverBatch || []).filter(slot => ['error', 'stopped'].includes(slot.status)).length;
@@ -1592,8 +1600,62 @@ class BDView extends ItemView {
   }
   renderRefRow(parent) {
     this.label(parent, t('参考图片')); const row = parent.createDiv('bd-ref-row');
-    for (const rf of this.refs) { const b = this.button(row, rf.basename, () => { this.refs = this.refs.filter(r => r !== rf); this.renderBody(); }, 'bd-ref-chip', 'x'); b.title = t('移除参考图：') + rf.path; }
-    this.button(row, t('添加参考图'), () => { const pool = this.app.vault.getFiles().filter(f => /^(png|jpe?g|webp)$/.test(f.extension)); if (!pool.length) throw new Error(t('笔记库里还没有图片')); new RefPicker(this.app, pool, f => { if (!this.refs.includes(f)) this.refs.push(f); this.renderBody(); }).open(); }, 'bd-btn', 'plus');
+    for (const rf of this.refs) { const b = this.button(row, rf.basename, () => { this.refs = this.refs.filter(r => r !== rf); this.remember(); this.renderBody(); }, 'bd-ref-chip', 'x'); b.title = t('移除参考图：') + rf.path; }
+    this.button(row, t('从电脑添加参考图'), () => this.pickLocalReferences(), 'bd-btn', 'upload');
+    this.button(row, t('从笔记库选择图片'), () => this.pickVaultReferences(), 'bd-btn', 'folder-open');
+  }
+  pickLocalReferences() {
+    if (this.busy || this.coverChatBusy || this.insertingFigures || this.operation || !this.activeFile()) return;
+    const sourcePath = this.articlePath;
+    const input = this.contentEl.ownerDocument.createElement('input');
+    input.type = 'file'; input.accept = 'image/png,image/jpeg,image/webp'; input.multiple = true;
+    input.onchange = () => { void this.addLocalReferences(Array.from(input.files || []), sourcePath).catch(e => new Notice(t('添加参考图失败：') + e.message, 7000)); };
+    input.click();
+  }
+  async addLocalReferences(files, sourcePath) {
+    if (!files.length) return [];
+    if (this.busy || this.coverChatBusy || this.insertingFigures || this.operation || this.viewClosed || this.articlePath !== sourcePath || !this.activeFile()) throw new Error(t('当前文章或任务已变化，请重新添加参考图'));
+    const added = [], failures = [];
+    this.busy = true; this.progress = t('正在添加参考图…'); this.error = ''; this.render();
+    try {
+      for (const file of files) {
+        try {
+          if (file.size > 60 * 1024 * 1024) throw new Error(t('参考图不能超过 60 MB'));
+          const data = await file.arrayBuffer(), bytes = Buffer.from(data);
+          if (bytes.length > 60 * 1024 * 1024) throw new Error(t('参考图不能超过 60 MB'));
+          const ext = bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) ? 'png' : bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255 ? 'jpg' : bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP' ? 'webp' : '';
+          if (!ext) throw new Error(t('请选择 PNG、JPEG 或 WebP 图片'));
+          if (this.viewClosed || this.articlePath !== sourcePath) throw new Error(t('当前文章或任务已变化，请重新添加参考图'));
+          const name = safeName(path.basename(file.name || 'reference').replace(/\.[^.]+$/, '')) + '.' + ext;
+          const dest = await this.app.fileManager.getAvailablePathForAttachment(name, sourcePath);
+          const saved = await this.app.vault.createBinary(dest, data);
+          this.refs.push(saved); added.push(saved);
+        } catch (e) { failures.push((file.name || t('参考图片')) + ': ' + e.message); }
+      }
+    } finally {
+      this.busy = false; this.progress = ''; this.error = failures.length ? (added.length ? t('部分参考图未添加：') : t('添加参考图失败：')) + failures.join('\n') : '';
+      this.remember(); if (!this.viewClosed) this.render();
+    }
+    if (added.length) new Notice(t('已添加 {count} 张参考图', { count: added.length }));
+    if (failures.length) new Notice(this.error, 8000);
+    return added;
+  }
+  pickVaultReferences() {
+    if (this.busy || this.coverChatBusy || this.insertingFigures || this.operation || !this.activeFile()) return;
+    const sourcePath = this.articlePath, pool = this.app.vault.getFiles().filter(f => /^(png|jpe?g|webp)$/i.test(f.extension));
+    if (!pool.length) { new Notice(t('笔记库中暂无图片，可从电脑添加。')); return; }
+    new RefPicker(this.app, pool, file => {
+      if (this.busy || this.coverChatBusy || this.insertingFigures || this.operation || this.viewClosed || this.articlePath !== sourcePath) return;
+      if (!this.refs.some(f => f.path === file.path)) this.refs.push(file);
+      this.remember(); this.renderBody();
+    }).open();
+  }
+  openReferenceMenu(anchor) {
+    if (this.busy || this.coverChatBusy || this.insertingFigures || this.operation || !this.activeFile()) return;
+    const menu = new Menu().setUseNativeMenu(false);
+    menu.addItem(item => item.setTitle(t('从电脑添加参考图')).setIcon('upload').onClick(() => this.pickLocalReferences()));
+    menu.addItem(item => item.setTitle(t('从笔记库选择图片')).setIcon('folder-open').onClick(() => this.pickVaultReferences()));
+    const rect = anchor.getBoundingClientRect(); menu.showAtPosition({ x: rect.left, y: rect.bottom });
   }
   renderFigureTab(B) {
     const { panel, fields, stage } = this.workspace(B);
@@ -3019,9 +3081,10 @@ module.exports = class BananaDesignPlugin extends Plugin {
     this.openCommand = this.addCommand(this.openCommand) || this.openCommand;
     this.addSettingTab(new BDSettingTab(this.app, this));
 
-    this.registerEvent(this.app.workspace.on('file-open', (file) => {
-      if (this.view) this.view.refreshForFile(file);
-    }));
+    const trackArticle = file => { if (file?.extension === 'md') this.lastMarkdownPath = file.path; };
+    trackArticle(this.app.workspace.getActiveFile?.());
+    this.registerEvent(this.app.workspace.on('file-open', trackArticle));
+    this.registerEvent(this.app.workspace.on('active-leaf-change', leaf => trackArticle(leaf?.view?.file)));
 
     this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
       if (file.extension !== 'md') return;
@@ -3040,10 +3103,15 @@ module.exports = class BananaDesignPlugin extends Plugin {
 
   async activateView() {
     const ws = this.app.workspace;
+    // Capture the note before opening/revealing the workbench changes the active leaf.
+    const active = ws.getActiveViewOfType?.(MarkdownView)?.file || ws.getActiveFile?.();
+    const source = active?.extension === 'md' ? active : this.app.vault.getAbstractFileByPath(this.lastMarkdownPath || '');
+    if (source?.extension === 'md') this.lastMarkdownPath = source.path;
     let leaf = ws.getLeavesOfType(VIEW)[0];
     if (!leaf) leaf = ws.getLeaf('tab');
     await leaf.setViewState({ type: VIEW, active: true });
-    ws.revealLeaf(leaf);
+    if (source?.extension === 'md' && leaf.view?.refreshForFile && !leaf.view.refreshForFile(source)) new Notice(t('当前任务进行中，结束后再切换文章'));
+    await ws.revealLeaf(leaf);
   }
   activeConnection(kind) { return this.services.selected(this.settings, kind); }
   async setLanguage(language) {

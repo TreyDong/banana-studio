@@ -269,6 +269,9 @@
 .bd-cover-options .bd-label { margin:0 0 6px; }
 .bd-cover-compose-bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:12px; }
 .bd-cover-tools,.bd-cover-actions { display:flex; align-items:center; gap:8px; min-width:0; }
+.bd-attachment-buttons { display:flex; align-items:center; gap:0; }
+.bd-app .bd-cover-compose-bar .bd-attachment-source { width:18px; padding:4px 2px; }
+.bd-attachment-source .bd-icon svg { width:12px; height:12px; }
 .bd-cover-actions { margin-left:auto; }
 .bd-app .bd-model-picker { flex-direction:row-reverse; gap:6px; padding:5px 6px; border:0; background:transparent; min-height:30px; font-size:var(--bd-font-meta); }
 .bd-model-picker .bd-icon svg { width:12px; height:12px; }
