@@ -3,6 +3,15 @@
 // Chinese source messages are stable keys. Translate only authored UI strings;
 // article text, prompts, paths, user names and provider responses are never scanned.
 const EN = Object.freeze({
+  "原文": "Original article",
+  "制作配图": "Create images",
+  "预览发布": "Preview & publish",
+  "配图类型": "Image type",
+  "预览版本": "Preview version",
+  "公众号": "WeChat",
+  "平台示意": "Platform mockup",
+  "文章检查": "Review article",
+  "检查已保存的正文与图片；选择公众号或 X，查看对应版本并发布。": "Review saved text and images. Choose WeChat or X to preview and publish that version.",
   "当前文章": "Current article",
   "工作台导航": "Workspace navigation",
   "模型": "Models",

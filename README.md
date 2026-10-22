@@ -4,12 +4,12 @@
 
 Create article-led covers and illustrations in Obsidian desktop. Choose an article, a visual template, and independent planning and image services. Preview results, export PNGs, and insert illustrations at approved locations.
 
-**Desktop only · Obsidian 1.11.4 or later · Version 0.11.1-design.2**
+**Desktop only · Obsidian 1.11.4 or later · Version 0.11.1-design.3**
 
 ## Use
 
 1. Enable the plugin and run **Open illustration workspace** (`banana-design:open`, displayed in Chinese as 打开配图工作台), or select its ribbon icon.
-2. Select a Markdown article. Choose a format and a template, including the built-in blank, engraving-inspired, and local card layouts. Dimensions and visual style are independent.
+2. The workspace has two stages: **Create images** (Cover / Body illustrations) and **Preview & publish** (Original article / WeChat / X). Each stage keeps the last subpage while the workspace stays open. Select a Markdown article. Choose a format and a template, including the built-in blank, engraving-inspired, and local card layouts. Dimensions and visual style are independent.
 3. For a cover, enter the request and choose 1–4 candidates. Generated images are saved as new files; old results remain in history.
 4. For article illustrations, generate a plan, review or edit the complete batch, then confirm generation. Owned markers reserve the chosen paragraphs; batch insertion replaces only valid markers. Missing or ambiguous targets stop insertion and never silently append images.
 5. Export the selected PNG, insert a cover, or return to an earlier batch. Restarting the workspace clears the current view while retaining saved images and history.

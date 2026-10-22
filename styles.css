@@ -38,6 +38,16 @@
 .bd-app .bd-tab { display:flex; gap:8px; align-items:center; padding:13px 0 11px; border:0; border-bottom:2px solid transparent; border-radius:0; color:var(--bd-muted); font-size:var(--bd-font-meta); white-space:nowrap; }
 .bd-app .bd-tab:hover { border-bottom-color:var(--bd-line); background:transparent; }
 .bd-app .bd-tab.is-active { border-bottom-color:var(--bd-ink); color:var(--bd-ink); font-weight:600; }
+.bd-app .bd-tab:focus-visible { outline-offset:-3px; }
+.bd-workflow-tabs { gap:28px; }
+.bd-app .bd-workflow-tabs .bd-tab { font-size:var(--bd-font-body); padding:12px 0; }
+.bd-context-nav { display:flex; align-items:center; gap:16px; padding:8px 20px; border-bottom:1px solid var(--bd-line); flex-shrink:0; min-width:0; }
+.bd-context-label { color:var(--bd-muted); font-size:var(--bd-font-meta); flex-shrink:0; }
+.bd-context-nav .bd-context-tabs { gap:4px; border:0; padding:0; min-width:0; }
+.bd-app .bd-context-tabs .bd-tab { padding:6px 10px; border:1px solid transparent; border-radius:var(--bd-radius-control); }
+.bd-app .bd-context-tabs .bd-tab.is-active { border-color:var(--bd-line); background:var(--bd-surface); }
+.bd-app .bd-context-tabs .bd-tab:hover { background:var(--bd-hover); }
+@container (max-width:520px) { .bd-context-nav { padding:8px 14px; gap:12px; }.bd-context-nav .bd-context-tabs { padding:0; gap:4px; } }
 .bd-body { flex:1; min-height:0; overflow:hidden; }
 .bd-workspace { display:grid; grid-template-columns:clamp(350px,30%,400px) minmax(0,1fr); height:100%; min-height:0; }
 .bd-panel { display:flex; flex-direction:column; min-height:0; border-right:1px solid var(--bd-line); background:var(--bd-paper); }
@@ -178,6 +188,9 @@
 .bd-panel-footer > .bd-full + .bd-full { margin-top:10px; }
 .bd-article-page { height:100%; overflow:auto; background:var(--bd-surface); }
 .bd-article-toolbar { display:flex; align-items:center; justify-content:space-between; max-width:760px; margin:0 auto; padding:18px 25px; }
+.bd-article-toolbar { gap:16px; align-items:flex-start; }
+.bd-article-toolbar > .bd-btn { flex-shrink:0; }
+.bd-article-note { color:var(--bd-muted); font-size:var(--bd-font-meta); line-height:1.6; margin-top:6px; }
 .bd-article { max-width:760px; margin:0 auto 40px; padding:28px 44px; background:var(--bd-paper); line-height:1.9; font-size:15px; min-height:calc(100% - 110px); }
 .bd-article h1 { font-size:25px; line-height:1.5; margin-top:0; }
 .bd-article h2 { font-size:20px; margin-top:32px; }
@@ -427,7 +440,7 @@
 /* ================= 公众号排版与发布 ================= */
 
 .bd-wechat-theme-row { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
-.bd-wechat-theme-card { display:flex; flex-direction:column; gap:6px; padding:8px; border:1px solid var(--bd-line); border-radius:8px; background:var(--bd-paper); cursor:pointer; }
+.bd-app .bd-wechat-theme-card { display:flex; flex-direction:column; gap:6px; padding:8px; height:auto; border:1px solid var(--bd-line); border-radius:8px; background:var(--bd-paper); cursor:pointer; white-space:normal; }
 .bd-wechat-theme-card:hover { border-color:color-mix(in srgb,var(--interactive-accent) 50%,var(--bd-line)); }
 .bd-wechat-theme-card.is-active { border-color:var(--interactive-accent); box-shadow:0 0 0 1px var(--interactive-accent); }
 .bd-wechat-theme-card svg { width:100%; height:auto; border-radius:4px; border:1px solid var(--bd-line); }
@@ -435,6 +448,8 @@
 .bd-app .bd-wechat-digest { min-height:54px; line-height:1.6; resize:vertical; }
 .bd-wechat-actions { display:flex; gap:8px; }
 .bd-wechat-actions .bd-btn { flex:1; }
+.bd-publish-footer > .bd-full { margin-bottom:8px; }
+.bd-publish-footer .bd-error { padding:8px 0 0; }
 .bd-wechat-progress { margin-top:8px; font-size:var(--bd-font-meta); color:var(--bd-muted); }
 .bd-wechat-hint { margin-top:8px; font-size:var(--bd-font-meta); line-height:1.6; color:var(--bd-muted); }
 .bd-wechat-stage { align-items:center; justify-content:flex-start; overflow:auto; padding:16px 0 24px; }

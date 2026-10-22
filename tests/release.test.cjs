@@ -63,15 +63,34 @@ test('an open cover history menu cannot replace the cover after a task starts',(
   hooks.BDView.prototype.openCoverHistory.call(view,{getBoundingClientRect:()=>({left:0,bottom:0})});
   view.busy=true;HostMenu.last.items[0].click();assert.equal(view.cover,null);
 });
-test('workspace arrow and endpoint keys switch tabs, wrap and focus the selected tab while busy tabs stay locked',()=>{
-  let buttons=[],focused;
-  const view={tab:'cover',button(parent,text,fn){const b={attrs:{},setAttribute(k,v){this.attrs[k]=v;},click(){if(!this.disabled)fn();},focus(){focused=this;}};buttons.push(b);return b;},contentEl:{querySelector(){return buttons.find(b=>b.attrs['aria-selected']==='true');}},render(){buttons=[];hooks.BDView.prototype.renderTabs.call(this,app);}};
-  const app={createDiv:()=>({setAttribute(){}})};view.render();
-  const key=key=>{let prevented=false;const b=buttons.find(b=>b.tabIndex===0);b.onkeydown({key,preventDefault(){prevented=true;}});return prevented;};
-  assert.equal(key('ArrowLeft'),true);assert.equal(view.tab,'x');assert.equal(focused,buttons[4]);
-  key('ArrowRight');assert.equal(view.tab,'cover');key('End');assert.equal(view.tab,'x');key('Home');assert.equal(view.tab,'cover');
+test('context navigation arrows wrap within its group and busy tabs stay locked',()=>{
+  let buttons=[],active='article',focused;
+  const app={createDiv:()=>({setAttribute(){}})};
+  const view={button(parent,text,fn){const b={attrs:{},setAttribute(k,v){this.attrs[k]=v;},click(){if(!this.disabled)fn();},focus(){focused=this;}};buttons.push(b);return b;}};
+  const render=()=>{buttons=[];hooks.BDView.prototype.renderTabGroup.call(view,app,[['article','Article'],['wechat','WeChat'],['x','X']],active,'bd-context-tabs','Preview',key=>{active=key;render();buttons.find(b=>b.tabIndex===0).focus();});};render();
+  const key=key=>{let prevented=false;buttons.find(b=>b.tabIndex===0).onkeydown({key,preventDefault(){prevented=true;}});return prevented;};
+  assert.equal(key('ArrowLeft'),true);assert.equal(active,'x');assert.equal(focused,buttons[2]);
+  key('ArrowRight');assert.equal(active,'article');key('End');assert.equal(active,'x');key('Home');assert.equal(active,'article');
   assert.equal(key('Tab'),false);assert.equal(buttons.filter(b=>b.tabIndex===0).length,1);
-  view.operation={};view.render();assert.equal(key('ArrowRight'),false);assert.equal(view.tab,'cover');
+  view.operation={};render();assert.equal(key('ArrowRight'),false);assert.equal(active,'article');
+});
+test('workflow navigation remembers each section and preserves drafts, plans and publication edits',()=>{
+  const groups=new Map(),drafts={coverChatDraft:'Keep my brief',figurePlan:{id:'plan',phase:'draft'},xTweets:[{text:'Edited tweet'}]};let focus;
+  const view={...drafts,tab:'cover',createTab:'cover',publishTab:'article',renderTabGroup(parent,items,active,cls,label,select){groups.set(cls,{items,active,select});},contentEl:{querySelector(selector){focus=selector;return {focus(){}};}},navigateTab:hooks.BDView.prototype.navigateTab,render(){groups.clear();hooks.BDView.prototype.renderTabs.call(this,app);}};
+  const app={createDiv:()=>({createSpan(){}})};view.render();
+  assert.equal(groups.get('bd-workflow-tabs').items.length,2);assert.equal(groups.get('bd-context-tabs').items.length,2);
+  groups.get('bd-workflow-tabs').select('publish');assert.equal(view.tab,'article');assert.equal(groups.get('bd-context-tabs').items.length,3);assert.equal(focus,'.bd-workflow-tabs .is-active');
+  groups.get('bd-context-tabs').select('x');groups.get('bd-workflow-tabs').select('create');assert.equal(view.tab,'cover');
+  groups.get('bd-context-tabs').select('figure');groups.get('bd-workflow-tabs').select('publish');assert.equal(view.tab,'x');
+  groups.get('bd-workflow-tabs').select('create');assert.equal(view.tab,'figure');
+  assert.equal(view.coverChatDraft,drafts.coverChatDraft);assert.equal(view.figurePlan,drafts.figurePlan);assert.equal(view.xTweets,drafts.xTweets);
+});
+test('workflow navigation rejects busy transitions and invalid targets without touching active work',()=>{
+  for(const block of ['busy','coverChatBusy','insertingFigures','operation']){
+    const view={tab:'cover',[block]:true,render(){throw new Error('Busy work was replaced');}};
+    assert.equal(hooks.BDView.prototype.navigateTab.call(view,'article'),false);assert.equal(view.tab,'cover');
+  }
+  assert.equal(hooks.BDView.prototype.navigateTab.call({render(){throw new Error('Invalid route');}},'unknown'),false);
 });
 test('standard three-file release loads without sibling modules, assets, network or CLI launch',async()=>{
   const temp=fs.mkdtempSync(path.join(os.tmpdir(),'bd-install-'));

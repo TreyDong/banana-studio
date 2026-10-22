@@ -888,7 +888,7 @@ async function sizeImage(buf, w, h) {
 
 class BDView extends ItemView {
   constructor(leaf, plugin) {
-    super(leaf); this.plugin = plugin; this.tab = 'cover'; this.moduleTab = 'style';
+    super(leaf); this.plugin = plugin; this.tab = 'cover'; this.createTab = 'cover'; this.publishTab = 'article'; this.moduleTab = 'style';
     this.state = { platform: 'gzh', type: 'hero', palette: 'warm', rendering: 'flat-vector', textLevel: 'title', mood: 'balanced', templateId: 'blank', templateMode: 'auto' };
     this.modules = new Set(); this.refs = []; this.figureCount = 3; this.figurePalette = 'warm'; this.figureRendering = 'flat-vector';
     this.cover = null; this.covers = []; this.coverCount = 1; this.coverBatch = []; this.coverBatchSlot = null; this.figures = []; this.models = [];
@@ -1386,13 +1386,21 @@ class BDView extends ItemView {
     article.title = this.articlePath || t('选择一篇 Markdown 文章'); article.disabled = this.busy || this.coverChatBusy || this.insertingFigures;
     this.headEl = head;
   }
-  renderTabs(app) {
-    const tabs = app.createDiv('bd-tabs'); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', t('工作台导航'));
+  navigateTab(key, group = 'context') {
+    if (this.busy || this.coverChatBusy || this.insertingFigures || this.operation || !['cover', 'figure', 'article', 'wechat', 'x'].includes(key)) return false;
+    this.tab = key;
+    if (['cover', 'figure'].includes(key)) this.createTab = key; else this.publishTab = key;
+    this.render();
+    this.contentEl.querySelector(group === 'workflow' ? '.bd-workflow-tabs .is-active' : '.bd-context-tabs .is-active')?.focus();
+    return true;
+  }
+  renderTabGroup(parent, items, active, cls, label, select) {
+    const tabs = parent.createDiv('bd-tabs ' + cls); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', label);
     const buttons = [];
-    for (const [key, name, icon] of [['cover', t('封面'), 'image'], ['figure', t('正文配图'), 'images'], ['article', t('文章预览'), 'file-text'], ['wechat', t('公众号发布'), 'send'], ['x', t('X 发布'), 'at-sign']]) {
-      const b = this.button(tabs, name, () => { this.tab = key; this.render(); this.contentEl.querySelector('.bd-tab.is-active')?.focus(); }, 'bd-tab' + (this.tab === key ? ' is-active' : ''), icon);
-      b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(this.tab === key));
-      b.tabIndex = this.tab === key ? 0 : -1;
+    for (const [key, name, icon] of items) {
+      const b = this.button(tabs, name, () => select(key), 'bd-tab' + (active === key ? ' is-active' : ''), icon);
+      b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(active === key));
+      b.tabIndex = active === key ? 0 : -1;
       b.onkeydown = e => {
         const index = buttons.indexOf(b);
         const target = e.key === 'ArrowRight' ? (index + 1) % buttons.length : e.key === 'ArrowLeft' ? (index + buttons.length - 1) % buttons.length : e.key === 'Home' ? 0 : e.key === 'End' ? buttons.length - 1 : -1;
@@ -1400,8 +1408,15 @@ class BDView extends ItemView {
         e.preventDefault(); buttons[target].click();
       };
       buttons.push(b);
-      b.disabled = !!this.operation;
+      b.disabled = !!(this.operation || this.busy || this.coverChatBusy || this.insertingFigures);
     }
+  }
+  renderTabs(app) {
+    const creating = ['cover', 'figure'].includes(this.tab);
+    this.renderTabGroup(app, [['create', t('制作配图'), 'images'], ['publish', t('预览发布'), 'book-open-check']], creating ? 'create' : 'publish', 'bd-workflow-tabs', t('工作台导航'), section => this.navigateTab(section === 'create' ? this.createTab : this.publishTab, 'workflow'));
+    const context = app.createDiv('bd-context-nav');
+    context.createSpan({ cls: 'bd-context-label', text: creating ? t('配图类型') : t('预览版本') });
+    this.renderTabGroup(context, creating ? [['cover', t('封面'), 'image'], ['figure', t('正文配图'), 'images']] : [['article', t('原文'), 'file-text'], ['wechat', t('公众号'), 'send'], ['x', 'X', 'at-sign']], this.tab, 'bd-context-tabs', creating ? t('配图类型') : t('预览版本'), key => this.navigateTab(key));
   }
   renderBody() {
     if (this.viewClosed) return;
@@ -1496,7 +1511,7 @@ class BDView extends ItemView {
     const top = stage.createDiv('bd-stage-head'); const left = top.createDiv(); left.createSpan({ text: title, cls: 'bd-stage-title' }); left.createSpan({ text: hint, cls: 'bd-stage-meta' });
     if (this.tab === 'cover') {
       const seg = top.createDiv('bd-seg');
-      for (const [id, text] of [['canvas', t('画布')], ['image', t('原图')], ['platform', t('预览')]]) { const b = this.button(seg, text, () => { this.previewMode = id; this.renderBody(); }, 'bd-seg-btn' + (id === this.previewMode ? ' is-active' : '')); b.setAttribute('aria-pressed', String(id === this.previewMode)); }
+      for (const [id, text] of [['canvas', t('画布')], ['image', t('原图')], ['platform', t('平台示意')]]) { const b = this.button(seg, text, () => { this.previewMode = id; this.renderBody(); }, 'bd-seg-btn' + (id === this.previewMode ? ' is-active' : '')); b.setAttribute('aria-pressed', String(id === this.previewMode)); }
     }
     if (this.tab === 'figure' && (this.figureMode === 'manual' ? this.manualFigureHistory() : this.figureHistory()).length) { const history = this.button(top, t('历史'), b => this.openFigureHistory(b), 'bd-btn', 'history'); history.disabled = this.busy || this.coverChatBusy || this.insertingFigures; }
   }
@@ -1939,7 +1954,8 @@ class BDView extends ItemView {
   async cancelFigurePlan() { return this.restartFigures(); }
   async renderArticleTab(B) {
     const f = this.activeFile(); const page = B.createDiv('bd-article-page');
-    const top = page.createDiv('bd-article-toolbar'); top.createSpan({ cls: 'bd-stage-title', text: t('文章预览') });
+    const top = page.createDiv('bd-article-toolbar'), heading = top.createDiv(); heading.createSpan({ cls: 'bd-stage-title', text: t('文章检查') });
+    heading.createDiv({ cls: 'bd-article-note', text: t('检查已保存的正文与图片；选择公众号或 X，查看对应版本并发布。') });
     if (!f) { this.emptyStage(page, t('先选择一篇文章'), t('文章正文与插入后的图片会显示在这里。'), 'file-text'); return; }
     this.button(top, t('打开原文'), () => this.app.workspace.getLeaf('tab').openFile(f), 'bd-btn', 'external-link');
     const holder = page.createDiv('bd-article markdown-rendered'); const md = stripFrontmatter(await this.app.vault.cachedRead(f));
@@ -2011,32 +2027,30 @@ class BDView extends ItemView {
   async renderWechatTab(B) {
     B.addClass('bd-wechat-body');
     const f = this.activeFile();
-    const { fields, stage } = this.workspace(B);
+    const { panel, fields, stage } = this.workspace(B);
     if (!f) { this.emptyStage(stage, t('先选择一篇文章'), t('公众号排版会读取当前文章：按主题生成内联样式，上传图片并推送草稿箱。'), 'send'); return; }
     const cfg = this.plugin.settings.wechat ||= {};
 
     const themeSec = this.section(fields, t('排版主题'));
     const themeRow = themeSec.createDiv('bd-wechat-theme-row');
     for (const theme of this.plugin.wechatThemes.wechatThemes()) {
-      const card = themeRow.createDiv('bd-wechat-theme-card' + (theme.id === this.wechatThemeId ? ' is-active' : ''));
-      card.setAttribute('role', 'button');
-      card.setAttribute('aria-label', this.plugin.wechatThemes.themeLabel(theme));
+      const card = themeRow.createEl('button', { cls: 'bd-wechat-theme-card' + (theme.id === this.wechatThemeId ? ' is-active' : ''), attr: { type: 'button', 'aria-label': this.plugin.wechatThemes.themeLabel(theme), 'aria-pressed': String(theme.id === this.wechatThemeId) } });
       card.innerHTML = this.plugin.wechatThemes.themePreview(theme);
       card.createDiv({ cls: 'bd-wechat-theme-name', text: this.plugin.wechatThemes.themeLabel(theme) });
       card.onclick = () => { if (this.busy) return; this.wechatThemeId = theme.id; cfg.defaultTheme = theme.id; this.remember(); this.renderBody(); };
     }
 
     const infoSec = this.section(fields, t('发布信息'));
-    const titleInput = infoSec.createEl('input', { cls: 'bd-input', attr: { type: 'text', maxlength: '64' } });
-    this.label(infoSec, t('标题'), titleInput);
+    this.label(infoSec, t('标题'));
+    const titleInput = infoSec.createEl('input', { cls: 'bd-input', attr: { type: 'text', maxlength: '64', 'aria-label': t('标题') } });
     titleInput.value = this.title || articleTitle(this.app, f);
     titleInput.oninput = () => { this.title = titleInput.value; this.remember(); };
-    const authorInput = infoSec.createEl('input', { cls: 'bd-input', attr: { type: 'text', maxlength: '8' } });
-    this.label(infoSec, t('作者'), authorInput);
+    this.label(infoSec, t('作者'));
+    const authorInput = infoSec.createEl('input', { cls: 'bd-input', attr: { type: 'text', maxlength: '8', 'aria-label': t('作者') } });
     authorInput.value = String(cfg.author || ''); authorInput.placeholder = t('可选，最多 8 字');
     authorInput.oninput = () => { cfg.author = authorInput.value; this.remember(); };
-    const digestArea = infoSec.createEl('textarea', { cls: 'bd-input bd-wechat-digest', attr: { rows: '2', maxlength: '120' } });
-    this.label(infoSec, t('摘要'), digestArea);
+    this.label(infoSec, t('摘要'));
+    const digestArea = infoSec.createEl('textarea', { cls: 'bd-input bd-wechat-digest', attr: { rows: '2', maxlength: '120', 'aria-label': t('摘要') } });
     digestArea.value = this.wechatDigest; digestArea.placeholder = t('留空则自动取正文首段');
     digestArea.oninput = () => { this.wechatDigest = digestArea.value; this.remember(); };
 
@@ -2045,11 +2059,11 @@ class BDView extends ItemView {
     for (const option of this.wechatCoverOptions()) coverSel.createEl('option', { value: option.id, text: option.label }).selected = option.id === this.wechatCoverPath;
     coverSel.onchange = () => { this.wechatCoverPath = coverSel.value; this.remember(); };
 
-    const actionSec = this.section(fields, t('排版与发布'));
-    this.button(actionSec, t('重新排版预览'), () => this.renderBody(), 'bd-btn bd-full', 'refresh-cw');
+    const actionSec = panel.createDiv('bd-panel-footer bd-publish-footer');
+    this.button(actionSec, t('重新排版预览'), () => this.renderBody(), 'bd-btn bd-full', 'refresh-cw').disabled = this.busy;
     const actionRow = actionSec.createDiv('bd-wechat-actions');
-    this.button(actionRow, t('复制富文本'), () => this.copyWechatRichText().catch(e => new Notice(e.message, 7000)), 'bd-btn', 'clipboard-copy');
-    this.button(actionRow, t('推送草稿箱'), () => this.publishWechat().catch(e => new Notice(e.message, 7000)), 'bd-btn bd-primary', 'send');
+    this.button(actionRow, t('复制富文本'), () => this.copyWechatRichText().catch(e => new Notice(e.message, 7000)), 'bd-btn', 'clipboard-copy').disabled = this.busy;
+    this.button(actionRow, t('推送草稿箱'), () => this.publishWechat().catch(e => new Notice(e.message, 7000)), 'bd-btn bd-primary', 'send').disabled = this.busy;
     if (!String(cfg.appId || '').trim()) actionSec.createDiv({ cls: 'bd-wechat-hint', text: t('尚未配置 AppID：请到「设置 → Banana Design → 公众号发布」完成配置后再推送。') });
     if (this.operation?.kind === 'wechat') {
       actionSec.createDiv({ cls: 'bd-wechat-progress', text: this.wechatProgress || this.progress });
@@ -2218,7 +2232,7 @@ class BDView extends ItemView {
   async renderXTab(B) {
     B.addClass('bd-x-body');
     const f = this.activeFile();
-    const { fields, stage } = this.workspace(B);
+    const { panel, fields, stage } = this.workspace(B);
     if (!f) { this.emptyStage(stage, t('先选择一篇文章'), t('X 发布会读取当前文章：AI 改写或按长度切分成推文串，逐条编辑配图后发布或复制。'), 'at-sign'); return; }
     const cfg = this.plugin.settings.x ||= {};
     const limit = this.xLimit();
@@ -2282,10 +2296,10 @@ class BDView extends ItemView {
     coverSel.onchange = () => { this.xCoverSource = coverSel.value; this.remember(); };
     coverSec.createDiv({ cls: 'bd-wechat-hint', text: t('首图封面挂在第一条推文上；建议先用封面页生成「X 配图 16:9」。') });
 
-    const actionSec = this.section(fields, t('发布'));
+    const actionSec = panel.createDiv('bd-panel-footer bd-publish-footer');
     const actionRow = actionSec.createDiv('bd-wechat-actions');
-    this.button(actionRow, t('复制全部'), () => this.copyXTweets().catch(e => new Notice(e.message, 7000)), 'bd-btn', 'clipboard-copy');
-    this.button(actionRow, t('发布到 X'), () => this.publishX().catch(e => new Notice(e.message, 7000)), 'bd-btn bd-primary', 'send');
+    this.button(actionRow, t('复制全部'), () => this.copyXTweets().catch(e => new Notice(e.message, 7000)), 'bd-btn', 'clipboard-copy').disabled = this.busy;
+    this.button(actionRow, t('发布到 X'), () => this.publishX().catch(e => new Notice(e.message, 7000)), 'bd-btn bd-primary', 'send').disabled = this.busy;
     if (!String(cfg.consumerKey || '').trim()) actionSec.createDiv({ cls: 'bd-wechat-hint', text: t('尚未配置 X 密钥：请到「设置 → Banana Design → X」完成配置；未配置也可以复制后手动发。') });
     if (this.operation?.kind === 'x') {
       actionSec.createDiv({ cls: 'bd-wechat-progress', text: this.xProgress || this.progress });
