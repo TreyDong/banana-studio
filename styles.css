@@ -273,8 +273,22 @@
 .bd-app .bd-cover-compose-bar .bd-attachment-source { width:18px; padding:4px 2px; }
 .bd-attachment-source .bd-icon svg { width:12px; height:12px; }
 .bd-cover-actions { margin-left:auto; }
-.bd-app .bd-model-picker { flex-direction:row-reverse; gap:6px; padding:5px 6px; border:0; background:transparent; min-height:30px; font-size:var(--bd-font-meta); }
+.bd-app .bd-model-picker { width:100%; justify-content:space-between; gap:8px; padding:8px; margin-top:12px; background:var(--bd-paper); text-align:left; font-size:var(--bd-font-meta); }
+.bd-model-picker > span:empty { display:none; }
+.bd-model-selection { flex:1; min-width:0; }
+.bd-model-selection-row { display:grid; grid-template-columns:5em minmax(0,1fr); gap:6px; align-items:baseline; line-height:1.6; }
+.bd-model-selection-row + .bd-model-selection-row { margin-top:3px; }
+.bd-model-role { color:var(--bd-muted); font-weight:400; }
+.bd-model-value { overflow-wrap:anywhere; white-space:normal; }
 .bd-model-picker .bd-icon svg { width:12px; height:12px; }
+.bd-generation-history { flex-shrink:0; white-space:nowrap; }
+@container (max-width:700px) { .bd-generation-history { order:1; margin-left:auto; }.bd-head-actions { order:2; } }
+.bd-flow-note { color:var(--bd-muted); font-size:var(--bd-font-meta); line-height:1.65; margin:8px 0; }
+.bd-panel-footer > .bd-btn + .bd-btn { margin-top:8px; }
+.bd-pending-figures { padding:10px 20px; border-bottom:1px solid var(--bd-line); background:var(--bd-surface); }
+.bd-pending-figures .bd-flow-note { margin:0 0 8px; }
+.bd-article-channels { display:flex; flex-wrap:wrap; gap:8px; padding:10px 20px; border-bottom:1px solid var(--bd-line); }
+.bd-figure-plan-status.is-inserted { color:var(--text-success); }
 .bd-app .bd-cover-count { flex:0 0 54px; width:54px; height:30px; padding:3px 13px 3px 5px; border:1px solid var(--bd-line); border-radius:var(--bd-radius-control); background:var(--bd-paper); font-size:var(--bd-font-meta); }
 .bd-app .bd-cover-template-button { width:100%; min-width:0; justify-content:flex-start; background:var(--bd-paper); border-radius:var(--bd-radius-control); padding:8px; text-align:left; }
 .bd-cover-template-button > span:nth-child(2) { min-width:0; flex:1; white-space:normal; overflow-wrap:anywhere; line-height:1.5; }

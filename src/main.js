@@ -846,6 +846,13 @@ class ArticlePicker extends FuzzySuggestModal {
   onChooseItem(f) { this.onPick(f); }
 }
 
+class GenerationHistoryPicker extends FuzzySuggestModal {
+  constructor(view, items) { super(view.app); this.view = view; this.items = items; this.setPlaceholder(t('搜索本笔记库的文章或配图类型')); }
+  getItems() { return this.items; }
+  getItemText(item) { return item.title + ' · ' + item.label + ' · ' + imageCount(item.count) + ' · ' + item.path; }
+  onChooseItem(item) { void this.view.openSavedGeneration(item).catch(e => new Notice(e.message, 7000)); }
+}
+
 class XImagePicker extends FuzzySuggestModal {
   constructor(app, onPick) { super(app); this.onPick = onPick; this.setPlaceholder(t('选择要附加的图片')); }
   getItems() { return this.app.vault.getFiles().filter(f => /\.(png|jpe?g|gif|webp)$/i.test(f.name)); }
@@ -1115,6 +1122,56 @@ class BDView extends ItemView {
   modelSummary() {
     return ['text', 'image'].map(kind => { const c = this.plugin.activeConnection(kind); return (kind === 'text' ? t('构思：') : t('生图：')) + c.name + ' · ' + (c.model || t('默认模型')); }).join('\n');
   }
+  renderModelPicker(parent) {
+    const picker = this.button(parent, '', anchor => this.openModelMenu(anchor), 'bd-btn bd-model-picker');
+    picker.setAttribute('aria-label', t('选择模型') + ' · ' + this.modelSummary());
+    picker.setAttribute('aria-haspopup', 'menu'); picker.setAttribute('aria-expanded', 'false'); picker.title = this.modelSummary();
+    const rows = picker.createDiv('bd-model-selection');
+    for (const kind of ['text', 'image']) {
+      const connection = this.plugin.activeConnection(kind), row = rows.createDiv('bd-model-selection-row');
+      row.createSpan({ cls: 'bd-model-role', text: kind === 'text' ? t('构思') : t('生图') });
+      row.createSpan({ cls: 'bd-model-value', text: connection.name + ' · ' + (connection.model || t('默认模型')) });
+    }
+    this.addIcon(picker, 'chevron-down');
+    picker.disabled = !!(this.busy || this.coverChatBusy || this.insertingFigures || this.operation);
+    return picker;
+  }
+  savedGenerations() {
+    const sessions = { ...this.plugin.settings.sessions };
+    if (this.articlePath) sessions[this.articlePath] = { title: this.title, covers: this.covers, figures: this.figures };
+    const entries = [], exists = path => !!path && !!this.app.vault.getAbstractFileByPath(path);
+    for (const [path, session] of Object.entries(sessions)) {
+      if (this.app.vault.getAbstractFileByPath(path)?.extension !== 'md') continue;
+      const title = session.title || path;
+      const covers = (session.covers || []).filter(c => exists(c.vaultPath));
+      if (covers.length) entries.push({ path, title, type: 'cover', label: t('封面'), count: covers.length });
+      for (const [mode, label] of [['agent', t('正文配图 · AI 规划')], ['manual', t('正文配图 · 按段落生成')]]) {
+        const items = (session.figures || []).filter(f => (f.mode === 'agent' ? 'agent' : 'manual') === mode && exists(f.vaultPath));
+        if (items.length) entries.push({ path, title, type: 'figure', mode, label, count: items.length });
+      }
+    }
+    return entries;
+  }
+  openGenerationHistory() {
+    if (this.busy || this.coverChatBusy || this.insertingFigures || this.operation) return;
+    const entries = this.savedGenerations();
+    if (!entries.length) { new Notice(t('本笔记库暂无可打开的生成记录。其他笔记库的历史不会显示在这里。'), 7000); return; }
+    new GenerationHistoryPicker(this, entries).open();
+  }
+  async openSavedGeneration(item) {
+    if (this.busy || this.coverChatBusy || this.insertingFigures || this.operation) return;
+    const file = this.app.vault.getAbstractFileByPath(item.path); if (file?.extension !== 'md') return;
+    if (this.articlePath !== file.path) this.useArticle(file, false);
+    if (item.type === 'cover') {
+      if (!this.cover && this.covers.length) this.selectCover(this.covers.at(-1));
+    } else {
+      this.figureMode = item.mode;
+      if (item.mode === 'agent' && !this.agentFigureItems().some(f => f.vaultPath)) {
+        const batch = this.figureHistory()[0]; if (batch) await this.restoreFigureBatch(batch.id);
+      } else if (item.mode === 'manual' && !this.figureItems().some(f => f.vaultPath)) this.manualBatchId = this.manualFigureHistory()[0]?.id || null;
+    }
+    this.remember(); this.navigateTab(item.type, 'workflow');
+  }
   openModelMenu(anchor) {
     if (this.busy || this.coverChatBusy || this.insertingFigures) return;
     const menu = new Menu().setUseNativeMenu(false);
@@ -1195,7 +1252,7 @@ class BDView extends ItemView {
     this.label(options, t('风格模板'));
     const template = this.button(options, this.templatePickerLabel(), () => this.openTemplateLibrary(), 'bd-btn bd-cover-template-button', 'layout-template'); template.setAttribute('aria-label', t('打开模板库') + ': ' + this.templatePickerLabel()); template.title = this.templatePickerLabel(); this.addIcon(template, 'chevron-down');
     const bar = compose.createDiv('bd-cover-compose-bar'), tools = bar.createDiv('bd-cover-tools'), actions = bar.createDiv('bd-cover-actions');
-    const model = this.button(tools, t('模型'), anchor => this.openModelMenu(anchor), 'bd-btn bd-model-picker', 'chevron-down'); model.setAttribute('aria-label', t('选择模型')); model.setAttribute('aria-haspopup', 'menu'); model.setAttribute('aria-expanded', 'false'); model.title = this.modelSummary();
+    this.renderModelPicker(options);
     const attachments = tools.createDiv('bd-attachment-buttons');
     const ref = this.button(attachments, '', () => this.pickLocalReferences(), 'bd-btn bd-icon-button', 'paperclip'); ref.setAttribute('aria-label', t('从电脑添加参考图')); ref.title = t('从电脑添加参考图');
     const source = this.button(attachments, '', anchor => this.openReferenceMenu(anchor), 'bd-btn bd-icon-button bd-attachment-source', 'chevron-down'); source.setAttribute('aria-label', t('其他参考图来源')); source.setAttribute('aria-haspopup', 'menu'); source.title = t('其他参考图来源');
@@ -1393,6 +1450,8 @@ class BDView extends ItemView {
     const article = this.button(actions, this.activeFile() ? articleTitle(this.app, this.activeFile()) : t('选择文章'), () => this.pickArticle(), 'bd-article-picker', 'file-text');
     article.title = this.articlePath || t('选择一篇 Markdown 文章'); article.disabled = this.busy || this.coverChatBusy || this.insertingFigures;
     this.headEl = head;
+    const history = this.button(head, t('历史生成'), () => this.openGenerationHistory(), 'bd-btn bd-generation-history', 'history');
+    history.title = t('查看本笔记库各篇文章的生成结果'); history.disabled = !!(this.busy || this.coverChatBusy || this.insertingFigures || this.operation);
   }
   navigateTab(key, group = 'context') {
     if (this.busy || this.coverChatBusy || this.insertingFigures || this.operation || !['cover', 'figure', 'article', 'wechat', 'x'].includes(key)) return false;
@@ -1521,7 +1580,7 @@ class BDView extends ItemView {
       const seg = top.createDiv('bd-seg');
       for (const [id, text] of [['canvas', t('画布')], ['image', t('原图')], ['platform', t('平台示意')]]) { const b = this.button(seg, text, () => { this.previewMode = id; this.renderBody(); }, 'bd-seg-btn' + (id === this.previewMode ? ' is-active' : '')); b.setAttribute('aria-pressed', String(id === this.previewMode)); }
     }
-    if (this.tab === 'figure' && (this.figureMode === 'manual' ? this.manualFigureHistory() : this.figureHistory()).length) { const history = this.button(top, t('历史'), b => this.openFigureHistory(b), 'bd-btn', 'history'); history.disabled = this.busy || this.coverChatBusy || this.insertingFigures; }
+    if (this.tab === 'figure') { const history = this.button(top, t('本篇历史'), b => this.openFigureHistory(b), 'bd-btn', 'history'); history.disabled = this.busy || this.coverChatBusy || this.insertingFigures || !(this.figureHistory().length || this.manualFigureHistory().length); history.title = t('查看本篇文章的自动与手动批次'); }
   }
   emptyStage(parent, title, hint, icon) {
     const empty = parent.createDiv('bd-empty'); this.addIcon(empty, icon); empty.createEl('h3', { text: title }); if (hint) empty.createEl('p', { text: hint });
@@ -1662,9 +1721,11 @@ class BDView extends ItemView {
     const agent = this.figureMode === 'agent';
     const mode = fields.createDiv('bd-section'), toolbar = mode.createDiv('bd-figure-toolbar'); toolbar.createSpan({ text: t('正文配图') });
     const controls = toolbar.createDiv('bd-figure-controls');
-    const restart = this.button(controls, t('重新开始'), () => this.restartFigures(), 'bd-btn', 'plus'); restart.disabled = this.busy || this.coverChatBusy || this.insertingFigures;
-    const model = this.button(controls, t('模型'), b => this.openModelMenu(b), 'bd-btn bd-model-picker', 'chevron-down'); model.setAttribute('aria-label', t('选择配图模型')); model.setAttribute('aria-haspopup', 'menu'); model.setAttribute('aria-expanded', 'false'); model.title = this.modelSummary();
-    this.pillGroup(mode, [{ id: 'agent', name: t('自动模式') }, { id: 'manual', name: t('手动模式') }], this.figureMode, v => { this.figureMode = v; if (v === 'agent' && this.figurePlan && this.figurePlan.phase !== 'inserted') { this.restoreFigureSize(); this.figureTemplateId = this.figurePlan.template?.id || 'blank'; } });
+    const restart = this.button(controls, t('新建一批'), () => this.restartFigures(), 'bd-btn', 'plus'); restart.disabled = this.busy || this.coverChatBusy || this.insertingFigures;
+    restart.title = t('保留历史图片，清空本批计划与未使用的预留位置');
+    this.pillGroup(mode, [{ id: 'agent', name: t('AI 规划') }, { id: 'manual', name: t('按段落生成') }], this.figureMode, v => { this.figureMode = v; if (v === 'agent' && this.figurePlan && this.figurePlan.phase !== 'inserted') { this.restoreFigureSize(); this.figureTemplateId = this.figurePlan.template?.id || 'blank'; } });
+    mode.createDiv({ cls: 'bd-flow-note', text: agent ? t('先规划内容与位置，再生成图片，最后插入正文。') : t('按文章段落生成指定数量的图片，再选择图片与插入位置。') });
+    this.renderModelPicker(mode);
     this.renderFigureSize(mode);
     this.label(mode, t('风格模板'));
     const picker = this.button(mode, this.templatePickerLabel('figure'), () => this.openTemplateLibrary('figure'), 'bd-btn bd-full bd-figure-template', 'layout-template');
@@ -1673,6 +1734,7 @@ class BDView extends ItemView {
     const figures = this.figureItems();
     if (agent) this.renderFigureAgent(panel, fields, figures);
     else {
+      mode.createDiv({ cls: 'bd-flow-note', text: t('画廊只展示生成结果；按位置插入后，图片才会出现在文章预览中。') });
       const sec = this.section(fields, t('配图设置')); this.label(sec, t('图片数量')); this.pillGroup(sec, [1,2,3,4,6].map(n => ({ id: n, name: imageCount(n) })), this.figureCount, v => this.figureCount = v);
       this.label(sec, t('配色')); this.pillGroup(sec, PALETTES, this.figurePalette, v => this.figurePalette = v, 'palette');
       this.label(sec, t('笔触')); this.pillGroup(sec, RENDERINGS, this.figureRendering, v => this.figureRendering = v);
@@ -1692,7 +1754,7 @@ class BDView extends ItemView {
     this.renderGenerating(preview);
     if (fg) {
       const context = stage.createDiv('bd-figure-context');
-      const row = context.createDiv('bd-figure-position-row'); row.createSpan({ cls: 'bd-hint', text: agent && !['draft', 'inserted'].includes(this.figurePlan.phase) ? fg.placeholder : this.figurePositionLabel(fg) });
+      const row = context.createDiv('bd-figure-position-row'); row.createSpan({ cls: 'bd-hint', text: this.figurePositionLabel(fg) + (agent && !['draft', 'inserted'].includes(this.figurePlan.phase) ? t(' · 已预留位置') : '') });
       if (!agent || this.figurePlan.phase === 'draft') { const change = this.button(row, t('调整位置'), () => this.chooseFigurePosition(fg), 'bd-btn bd-icon-button', 'map-pin'); change.disabled = this.busy || this.insertingFigures; }
       else { const open = this.button(row, t('打开原文'), () => this.app.workspace.getLeaf('tab').openFile(this.activeFile()), 'bd-btn', 'external-link'); open.disabled = this.busy || this.insertingFigures; }
       context.createEl('p', { text: (fg.anchor?.text || fg.section || '').slice(0, 220) });
@@ -1705,6 +1767,7 @@ class BDView extends ItemView {
       if (!agent && (fg.vaultPath || fg.error)) { const retry = this.button(footer, t('重新生成'), () => this.retryFigure(fg), 'bd-btn', 'refresh-cw'); retry.disabled = this.busy || this.insertingFigures; }
       const strip = footer.createDiv('bd-thumbs'); figures.forEach((item, i) => { const b = this.button(strip, String(i + 1), () => { this.selectedFigure = this.figures.indexOf(item); this.renderBody(); }, 'bd-thumb' + (item === fg ? ' is-active' : '')); if (item.vaultPath) { const img = b.createEl('img'); img.src = this.resourceOf(item.vaultPath); } b.title = t('第 ') + (i + 1) + t(' 张 · ') + (item.error ? t('失败') : item.vaultPath ? t('已完成') : item.status === 'stopped' ? t('已停止') : item.status === 'planned' ? t('已规划') : t('生成中')); });
       if (!agent) { const selected = figures.filter(f => f.vaultPath && f.selected !== false); const insert = this.button(footer, t('按位置插入 ') + selected.length + t(' 张'), () => this.insertFigures(selected), 'bd-btn bd-primary', 'file-plus'); insert.disabled = this.busy || this.insertingFigures || !selected.length; }
+      if (!agent && fg.vaultPath) this.button(footer, t('预览文章'), () => this.navigateTab('article', 'workflow'), 'bd-btn', 'book-open-check');
     }
   }
   agentFigureItems() { return this.figurePlan ? this.figures.filter(f => f.planId === this.figurePlan.id) : []; }
@@ -1760,6 +1823,11 @@ class BDView extends ItemView {
   figurePositionLabel(fg) { const section = fg.anchor?.heading?.split(' / ').at(-1); return (section ? '「' + section + '」· ' : '') + (fg.anchor?.side === 'before' ? t('这段之前') : t('这段之后')); }
   renderFigureAgent(panel, fields, figures) {
     const phase = this.figurePlan?.phase, locked = this.busy || this.insertingFigures;
+    if (!this.figurePlan) {
+      const request = this.section(fields, t('配图要求（可选）'));
+      const input = request.createEl('textarea', { cls: 'bd-textarea', attr: { 'aria-label': t('配图要求（可选）'), placeholder: t('如：只配两张，重点解释流程，少用文字…'), rows: '3' } });
+      input.value = this.figureRequirements; input.oninput = () => { this.figureRequirements = input.value; this.remember(); };
+    }
     if (this.figurePlan) {
       const label = { draft: t('配图计划'), reserving: t('准备插入位置'), generating: t('批量生成中'), partial: t('本批尚未完成'), ready: t('全部图片已就绪'), inserted: t('整批已插入') }[phase] || t('配图计划');
       const plans = this.section(fields, label);
@@ -1770,11 +1838,11 @@ class BDView extends ItemView {
         item.createSpan({ cls: 'bd-figure-plan-number', text: String(i + 1).padStart(2, '0'), attr: { 'aria-hidden': 'true' } });
         const body = item.createDiv('bd-figure-plan-item-body'), head = body.createDiv('bd-figure-plan-item-head');
         head.createEl('h3', { cls: 'bd-figure-plan-title', text: fg.title });
-        const statusKey = fg.status === 'running' ? 'running' : fg.vaultPath ? 'done' : fg.status === 'stopped' ? 'stopped' : fg.error ? 'error' : fg.status === 'planned' ? 'planned' : 'queued';
-        const statusLabel = { running: t('生成中'), done: t('已完成'), stopped: t('已停止'), error: t('待重试'), planned: t('待生成'), queued: t('排队中') };
+        const statusKey = fg.status === 'running' ? 'running' : fg.error ? 'error' : fg.vaultPath ? (phase === 'inserted' ? 'inserted' : 'done') : fg.status === 'stopped' ? 'stopped' : fg.status === 'planned' ? 'planned' : 'queued';
+        const statusLabel = { running: t('生成中'), done: t('已生成'), inserted: t('已插入'), stopped: t('已停止'), error: t('待重试'), planned: t('待生成'), queued: t('排队中') };
         const badge = head.createSpan({ cls: 'bd-figure-plan-status is-' + statusKey });
         const statusIcon = badge.createSpan({ cls: 'bd-icon', attr: { 'aria-hidden': 'true' } });
-        setIcon(statusIcon, { running: 'loader', done: 'check', stopped: 'pause', error: 'circle-alert', planned: 'circle-dashed', queued: 'clock' }[statusKey]);
+        setIcon(statusIcon, { running: 'loader', done: 'check', inserted: 'file-check', stopped: 'pause', error: 'circle-alert', planned: 'circle-dashed', queued: 'clock' }[statusKey]);
         badge.createSpan({ text: statusLabel[statusKey] });
         body.createEl('p', { cls: 'bd-figure-plan-purpose', text: fg.purpose });
         const meta = body.createDiv('bd-figure-plan-meta');
@@ -1790,7 +1858,7 @@ class BDView extends ItemView {
       if (phase !== 'inserted') {
         const request = fields.createEl('details', { cls: 'bd-figure-adjust' }); request.open = this.figureAdjustOpen ?? true;
         request.ontoggle = () => { this.figureAdjustOpen = request.open; this.remember(); };
-        request.createEl('summary', { text: t('改进方向') });
+        request.createEl('summary', { text: t('微调方案（可选）') });
         const row = request.createDiv('bd-figure-adjust-inner');
         const input = row.createEl('textarea', { cls: 'bd-textarea', attr: { 'aria-label': t('自动配图要求'), placeholder: t('如：改成两张，第二张用对比图…'), rows: '2' } }); input.value = this.figureRequirements;
         input.oninput = () => { this.figureRequirements = input.value; this.remember(); };
@@ -1800,7 +1868,13 @@ class BDView extends ItemView {
     const footer = panel.createDiv('bd-panel-footer');
     const status = this.error || this.progress; if (status) { const msg = footer.createDiv({ cls: 'bd-status' + (this.error ? ' is-error' : ''), text: status }); msg.setAttribute('role', 'status'); msg.setAttribute('aria-live', 'polite'); }
     if (this.renderStopButton(footer)) return;
-    if (!phase || phase === 'inserted') { const plan = this.button(footer, phase ? t('生成新配图计划') : t('生成配图计划'), () => this.planFigures(), 'bd-btn bd-primary bd-full', 'sparkles'); plan.disabled = locked || !this.activeFile(); }
+    const guidance = phase === 'inserted' ? t('本批图片已插入正文，可以预览整篇文章。') : phase === 'ready' ? t('图片已保存，尚未插入正文。插入后再预览整篇文章。') : phase === 'draft' ? t('确认后会在原文预留位置并生成图片，完成后再统一插入。') : '';
+    if (guidance) footer.createDiv({ cls: 'bd-flow-note', text: guidance });
+    if (phase === 'inserted') {
+      const preview = this.button(footer, t('预览文章'), () => this.navigateTab('article', 'workflow'), 'bd-btn bd-primary bd-full', 'book-open-check'); preview.disabled = locked;
+      const plan = this.button(footer, t('生成新配图计划'), () => this.planFigures(), 'bd-btn bd-full', 'sparkles'); plan.disabled = locked || !this.activeFile();
+    }
+    else if (!phase) { const plan = this.button(footer, t('生成配图计划'), () => this.planFigures(), 'bd-btn bd-primary bd-full', 'sparkles'); plan.disabled = locked || !this.activeFile(); }
     else if (phase === 'ready') { const insert = this.button(footer, t('整批插入文章'), () => this.confirmAgentFigures(), 'bd-btn bd-primary bd-full', 'file-check'); insert.disabled = locked || !figures.length || figures.some(f => f.status !== 'done' || !f.vaultPath); }
     else if (figures.length) {
       const saved = figures.every(f => f.status === 'done' && f.vaultPath);
@@ -1825,15 +1899,19 @@ class BDView extends ItemView {
   openFigureHistory(anchor) {
     if (this.busy || this.coverChatBusy || this.insertingFigures) return;
     const menu = new Menu().setUseNativeMenu(false);
-    if (this.figureMode === 'manual') {
+    if (this.manualFigureHistory().length) {
       const history = this.manualFigureHistory();
-      for (const [i, batch] of history.entries()) menu.addItem(item => item.setTitle(batch.items.filter(f => f.vaultPath).length + t(' 张 · 手动批次 ') + (history.length - i)).setChecked(this.manualBatchId === batch.id).onClick(() => {
+      for (const [i, batch] of history.entries()) menu.addItem(item => item.setTitle(batch.items.filter(f => f.vaultPath).length + t(' 张 · 手动批次 ') + (history.length - i)).setChecked(this.figureMode === 'manual' && this.manualBatchId === batch.id).onClick(() => {
         if (this.busy || this.coverChatBusy || this.insertingFigures) return;
-        this.manualBatchId = batch.id; this.selectedFigure = this.figures.indexOf(batch.items.find(f => f.vaultPath)); this.error = ''; this.progress = ''; this.remember(); this.renderBody();
+        this.figureMode = 'manual'; this.manualBatchId = batch.id; this.selectedFigure = this.figures.indexOf(batch.items.find(f => f.vaultPath)); this.error = ''; this.progress = ''; this.remember(); this.renderBody();
       }));
-      const rect = anchor.getBoundingClientRect(); menu.showAtPosition({ x: rect.left, y: rect.bottom }); return;
+      if (this.figureHistory().length) menu.addSeparator();
     }
-    for (const batch of this.figureHistory()) menu.addItem(item => item.setTitle(batch.items.filter(f => f.vaultPath).length + t(' 张 · ') + batch.items[0].title).setChecked(this.figurePlan?.id === batch.id).onClick(() => this.restoreFigureBatch(batch.id)));
+    for (const batch of this.figureHistory()) menu.addItem(item => item.setTitle(t('AI 规划') + ' · ' + batch.items.filter(f => f.vaultPath).length + t(' 张 · ') + batch.items[0].title).setChecked(this.figureMode === 'agent' && this.figurePlan?.id === batch.id).onClick(() => {
+      if (this.busy || this.coverChatBusy || this.insertingFigures) return;
+      if (this.figurePlan?.id === batch.id) { this.figureMode = 'agent'; this.remember(); this.renderBody(); }
+      else return this.restoreFigureBatch(batch.id);
+    }));
     const rect = anchor.getBoundingClientRect(); menu.showAtPosition({ x: rect.left, y: rect.bottom });
   }
   async restoreFigureBatch(id) {
@@ -2014,12 +2092,22 @@ class BDView extends ItemView {
     finally { this.insertingFigures = false; this.remember(); this.render(); }
   }
   async cancelFigurePlan() { return this.restartFigures(); }
+  renderPendingFigures(parent) {
+    if (!this.figurePlan || this.figurePlan.phase === 'inserted' || !this.agentFigureItems().length) return;
+    const note = parent.createDiv('bd-pending-figures');
+    note.createDiv({ cls: 'bd-flow-note', text: t('本批正文配图尚未插入。这里显示已保存的原文，生成结果不会自动出现在预览中。') });
+    this.button(note, t('返回正文配图'), () => this.navigateTab('figure', 'workflow'), 'bd-btn', 'images');
+  }
   async renderArticleTab(B) {
     const f = this.activeFile(); const page = B.createDiv('bd-article-page');
     const top = page.createDiv('bd-article-toolbar'), heading = top.createDiv(); heading.createSpan({ cls: 'bd-stage-title', text: t('文章检查') });
     heading.createDiv({ cls: 'bd-article-note', text: t('检查已保存的正文与图片；选择公众号或 X，查看对应版本并发布。') });
     if (!f) { this.emptyStage(page, t('先选择一篇文章'), t('文章正文与插入后的图片会显示在这里。'), 'file-text'); return; }
     this.button(top, t('打开原文'), () => this.app.workspace.getLeaf('tab').openFile(f), 'bd-btn', 'external-link');
+    this.renderPendingFigures(page);
+    const channels = page.createDiv('bd-article-channels');
+    this.button(channels, t('查看公众号版本'), () => this.navigateTab('wechat'), 'bd-btn', 'send');
+    this.button(channels, t('查看 X 版本'), () => this.navigateTab('x'), 'bd-btn', 'at-sign');
     const holder = page.createDiv('bd-article markdown-rendered'); const md = stripFrontmatter(await this.app.vault.cachedRead(f));
     if (holder.isConnected) await MarkdownRenderer.render(this.app, md, holder, f.path, this);
   }
@@ -2091,6 +2179,7 @@ class BDView extends ItemView {
     const f = this.activeFile();
     const { panel, fields, stage } = this.workspace(B);
     if (!f) { this.emptyStage(stage, t('先选择一篇文章'), t('公众号排版会读取当前文章：按主题生成内联样式，上传图片并推送草稿箱。'), 'send'); return; }
+    this.renderPendingFigures(fields);
     const cfg = this.plugin.settings.wechat ||= {};
 
     const themeSec = this.section(fields, t('排版主题'));
@@ -2296,6 +2385,7 @@ class BDView extends ItemView {
     const f = this.activeFile();
     const { panel, fields, stage } = this.workspace(B);
     if (!f) { this.emptyStage(stage, t('先选择一篇文章'), t('X 发布会读取当前文章：AI 改写或按长度切分成推文串，逐条编辑配图后发布或复制。'), 'at-sign'); return; }
+    this.renderPendingFigures(fields);
     const cfg = this.plugin.settings.x ||= {};
     const limit = this.xLimit();
 

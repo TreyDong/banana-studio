@@ -45,6 +45,59 @@ function load(filename, expose=false) {
 }
 const sourcePlugin=load(path.join(root,'src/main.js'),true);
 const hooks=sourcePlugin.testHooks;
+function flowNode(options={}) {
+  const node={text:options.text||'',children:[],attrs:{...options.attr},value:'',isConnected:true,setAttribute(k,v){this.attrs[k]=v;}};
+  for(const method of ['createEl','createDiv','createSpan']) node[method]=(...args)=>{const opts=method==='createEl'?(args[1]||{}):(typeof args[0]==='object'?args[0]:{});const child=flowNode(opts);node.children.push(child);return child;};
+  return node;
+}
+function flowText(node){return [node.text,...node.children.map(flowText)].join(' ');}
+function flowView(overrides={}) {
+  return Object.assign(Object.create(hooks.BDView.prototype),{plugin:{},figures:[],refs:[],figureRequirements:'',activeFile:()=>({path:'Flow.md'}),remember(){},renderStopButton:()=>null,navigateTab(key){this.destination=key;},...overrides});
+}
+test('chosen planning and image services and model names are visible without hovering',()=>{
+  i18n.configureLocale(()=>'zh'); const parent=flowNode();
+  const view=flowView({plugin:{activeConnection:kind=>({name:kind==='text'?'Planning Service':'Local Gemini',model:kind==='text'?'planner-v2':'gemini-image'})}});
+  const picker=view.renderModelPicker(parent);
+  assert.match(flowText(parent),/Planning Service · planner-v2/);assert.match(flowText(parent),/Local Gemini · gemini-image/);
+  assert.equal(picker.attrs['aria-haspopup'],'menu');view.busy=true;assert.equal(view.renderModelPicker(flowNode()).disabled,true);
+});
+test('global history includes both modes across articles and uses current unsaved results',()=>{
+  const files=new Map(['Old.md','Current.md','old.png','manual.png','live.png'].map(path=>[path,{path,extension:path.endsWith('.md')?'md':'png'}]));
+  const view=flowView({articlePath:'Current.md',title:'Current',covers:[{vaultPath:'live.png'}],figures:[],app:{vault:{getAbstractFileByPath:p=>files.get(p)}},plugin:{settings:{sessions:{'Old.md':{title:'Old',covers:[{vaultPath:'old.png'},{vaultPath:'missing.png'}],figures:[{mode:'manual',vaultPath:'manual.png'}]},'Current.md':{covers:[]},'Deleted.md':{covers:[{vaultPath:'old.png'}]}}}}});
+  const entries=view.savedGenerations();assert.equal(entries.length,3);assert.equal(entries.find(e=>e.path==='Current.md').count,1);assert.equal(entries.find(e=>e.mode==='manual').path,'Old.md');assert.ok(entries.every(e=>e.count===1));
+});
+test('history routing saves the current article before loading another and guards running work',async()=>{
+  let loaded=0,selected=0;
+  const view=flowView({articlePath:'Current.md',app:{vault:{getAbstractFileByPath:()=>({path:'Old.md',extension:'md'})}},useArticle(file){loaded++;this.articlePath=file.path;this.covers=[{vaultPath:'old.png'}];},selectCover(item){selected++;this.cover=item;}});
+  await view.openSavedGeneration({path:'Old.md',type:'cover'});assert.equal(loaded,1);assert.equal(selected,1);assert.equal(view.destination,'cover');
+  view.busy=true;await view.openSavedGeneration({path:'Else.md',type:'figure',mode:'agent'});assert.equal(loaded,1);
+});
+test('article history switches between manual and AI batches even from the opposite mode',async()=>{
+  i18n.configureLocale(()=>'zh');const agent={planId:'p',mode:'agent',vaultPath:'a.png',title:'AI'},manual={batchId:'m',mode:'manual',vaultPath:'m.png'};
+  const view=flowView({figureMode:'agent',figurePlan:{id:'p'},figures:[agent,manual],renderBody(){}});
+  view.openFigureHistory({getBoundingClientRect:()=>({left:0,bottom:0})});
+  const choices=HostMenu.last.items.filter(i=>i.click);assert.equal(choices.length,2);
+  await choices[0].click();assert.equal(view.figureMode,'manual');assert.equal(view.manualBatchId,'m');
+  await choices[1].click();assert.equal(view.figureMode,'agent');
+});
+test('requirements are editable before planning and insertion leads to article preview',async()=>{
+  i18n.configureLocale(()=>'zh');let view=flowView(),panel=flowNode(),fields=flowNode();
+  view.renderFigureAgent(panel,fields,[]);assert.match(flowText(fields),/配图要求（可选）/);
+  const input=fields.children[0].children.find(c=>c.attrs['aria-label']);input.value='Only two diagrams';input.oninput();assert.equal(view.figureRequirements,'Only two diagrams');
+  view=flowView({figurePlan:{phase:'inserted',summary:'Complete'}});panel=flowNode();view.renderFigureAgent(panel,flowNode(),[]);
+  const footer=panel.children[0],preview=footer.children.find(n=>flowText(n).trim()==='预览文章');assert.ok(preview);await preview.onclick();assert.equal(view.destination,'article');
+});
+test('preview explains uninserted images and offers a return path without modifying the article',async()=>{
+  i18n.configureLocale(()=>'zh');const view=flowView({figurePlan:{id:'p',phase:'ready'},figures:[{planId:'p',vaultPath:'a.png'}]}),parent=flowNode();
+  view.renderPendingFigures(parent);assert.match(flowText(parent),/尚未插入/);await parent.children[0].children[1].onclick();assert.equal(view.destination,'figure');
+  view.figurePlan.phase='inserted';const clean=flowNode();view.renderPendingFigures(clean);assert.equal(clean.children.length,0);
+});
+test('confirming generated images replaces reserved positions before the inserted state is saved',async()=>{
+  const source='# Flow\n\nFirst paragraph.\n',blocks=figures.articleBlocks(source),fg={mode:'agent',planId:'p',sourcePath:'Flow.md',anchor:figures.makeAnchor(blocks[0],blocks,'Flow.md',source),placeholder:figures.placeholderFor('p',0),status:'done',vaultPath:'images/a.png'};
+  let content=figures.preparePlaceholders(source,[fg],'Flow.md').content,saved;
+  const view=flowView({figurePlan:{id:'p',phase:'ready'},figures:[fg],app:{vault:{getAbstractFileByPath:()=>({}),async process(file,fn){content=fn(content);}}},plugin:{figureAgent:figures},render(){},async persistFigures(){saved=this.figurePlan.phase;}});
+  await view.confirmAgentFigures();assert.match(content,/!\[\[images\/a.png\]\]/);assert.equal(saved,'inserted');assert.equal(view.figurePlan.phase,'inserted');assert.equal(view.insertingFigures,false);
+});
 test('ribbon launch captures the active note before focusing a new or existing workbench',async()=>{
   for(const existing of [false,true]){
     let active={path:'Current.md',extension:'md'},selected,revealed=false;
