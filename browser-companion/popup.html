@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>Banana Design 发布助手</title>
+<style>
+body{width:320px;margin:0;padding:20px;color:#242424;background:#fafafa;font:13px/1.6 system-ui,sans-serif}h1{font-size:16px;margin:0 0 16px}label{display:block;margin:12px 0 4px}input[type=url],input[type=password]{box-sizing:border-box;width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;background:white;font:inherit}button{margin-top:14px;padding:7px 14px;border:1px solid #aaa;border-radius:6px;background:white;cursor:pointer;font:inherit}p{overflow-wrap:anywhere}small{color:#666}
+</style>
+<h1>Banana Design 发布助手</h1>
+<form id="pair-form">
+<label for="server">服务器地址</label><input id="server" type="url" placeholder="https://publish.example.com" required>
+<label for="code">浏览器配对码</label><input id="code" type="password" autocomplete="off" required>
+<button id="pair" type="submit">连接服务器</button>
+</form>
+<label><input id="enabled" type="checkbox"> 接收并处理公众号草稿任务</label>
+<p id="status" role="status">尚未连接</p>
+<small>只创建草稿，不执行群发。请在本浏览器登录公众号后台；任务完成后检查封面、图片与排版。</small>
+<script src="worker.js" defer></script>
+</html>

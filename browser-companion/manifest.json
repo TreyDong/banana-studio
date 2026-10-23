@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Banana Design 发布助手（测试版）",
+  "version": "0.1.0",
+  "description": "领取 Banana Design 服务器任务，使用本浏览器登录态创建公众号草稿。",
+  "minimum_chrome_version": "120",
+  "permissions": ["storage", "alarms", "scripting", "tabs"],
+  "host_permissions": ["https://mp.weixin.qq.com/*"],
+  "optional_host_permissions": ["https://*/*", "http://127.0.0.1/*", "http://localhost/*"],
+  "background": { "service_worker": "worker.js" },
+  "action": { "default_popup": "popup.html" }
+}

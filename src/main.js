@@ -6,7 +6,7 @@ const templateSelection = require('./templates/selection');
  */
 const {
   Plugin, ItemView, Notice, PluginSettingTab, Setting, normalizePath,
-  FuzzySuggestModal, Modal, Menu, TFile, MarkdownView, MarkdownRenderer, arrayBufferToBase64, setIcon, getLanguage, ToggleComponent,
+  FuzzySuggestModal, Modal, Menu, TFile, MarkdownView, MarkdownRenderer, arrayBufferToBase64, setIcon, getLanguage, ToggleComponent, requestUrl,
 } = require('obsidian');
 const { spawn, execFile, execFileSync } = require('child_process');
 const fs = require('fs');
@@ -2220,11 +2220,19 @@ class BDView extends ItemView {
     this.button(actionSec, t('重新排版预览'), () => this.renderBody(), 'bd-btn bd-full', 'refresh-cw').disabled = this.busy;
     const actionRow = actionSec.createDiv('bd-wechat-actions');
     this.button(actionRow, t('复制富文本'), () => this.copyWechatRichText().catch(e => new Notice(e.message, 7000)), 'bd-btn', 'clipboard-copy').disabled = this.busy;
-    this.button(actionRow, t('推送草稿箱'), () => this.publishWechat().catch(e => new Notice(e.message, 7000)), 'bd-btn bd-primary', 'send').disabled = this.busy;
-    if (!String(cfg.appId || '').trim()) actionSec.createDiv({ cls: 'bd-wechat-hint', text: t('尚未配置 AppID：请到「设置 → Banana Design → 公众号发布」完成配置后再推送。') });
+    const browserDelivery = cfg.delivery === 'browser';
+    this.button(actionRow, browserDelivery ? t('发送到浏览器') : t('推送草稿箱'), () => (browserDelivery ? this.queueWechatForBrowser() : this.publishWechat()).catch(e => new Notice(e.message, 7000)), 'bd-btn bd-primary', 'send').disabled = this.busy;
+    if (browserDelivery) {
+      const record = this.plugin.settings.publishRelay?.jobs?.find(item => item.articlePath === f.path);
+      const labels = { queued: '等待目标浏览器上线', claimed: '浏览器已领取', processing: '浏览器正在处理', draft_saved: '草稿已创建，请检查排版', failed: '处理失败', needs_review: '需要在浏览器检查', uncertain: '结果待核对，未自动重试', expired: '任务已过期', sending: '上传结果待核对，再次发送会核对同一任务' };
+      if (record) {
+        actionSec.createDiv({ cls: 'bd-wechat-hint', text: t(labels[record.status] || record.status) + (record.error ? ' · ' + record.error : '') });
+        if (record.id) this.button(actionSec, t('检查任务状态'), async () => { await this.plugin.refreshBrowserJob(record); this.renderBody(); }, 'bd-btn', 'refresh-cw').disabled = this.busy;
+      } else actionSec.createDiv({ cls: 'bd-wechat-hint', text: t('文章和图片会上传到已配对服务器，由目标浏览器创建公众号草稿。') });
+    } else if (!String(cfg.appId || '').trim()) actionSec.createDiv({ cls: 'bd-wechat-hint', text: t('尚未配置 AppID：请到「设置 → Banana Design → 公众号发布」完成配置后再推送。') });
     if (this.operation?.kind === 'wechat') {
       actionSec.createDiv({ cls: 'bd-wechat-progress', text: this.wechatProgress || this.progress });
-      this.renderStopButton(actionSec, 'bd-btn bd-full');
+      if (!browserDelivery) this.renderStopButton(actionSec, 'bd-btn bd-full');
     }
     if (this.wechatError) actionSec.createDiv({ cls: 'bd-error', text: this.wechatError });
 
@@ -2295,6 +2303,46 @@ class BDView extends ItemView {
     } finally {
       this.busy = false; this.finishTask(job); this.remember(); this.render();
     }
+  }
+  async queueWechatForBrowser() {
+    if (this.busy) return;
+    const file = this.activeFile(); if (!file) return;
+    const relay = this.plugin.settings.publishRelay ||= {}, cfg = this.plugin.settings.wechat || {};
+    if (!relay.url || !relay.secretId || !relay.deviceId) throw new Error(t('请先在「公众号发布」设置中连接服务器并选择目标浏览器'));
+    const operation = this.beginTask('wechat'); this.busy = true; this.wechatError = ''; this.wechatProgress = t('正在打包文章和图片…'); this.render();
+    try {
+      const markdown = await this.wechatMarkdown(file), formatted = await this.wechatFormatted(file);
+      const cover = await this.wechatCoverFile(file, formatted);
+      if (!cover) throw new Error(t('发送草稿需要封面，请先选择封面'));
+      const packet = await require('./publishing/article-package').buildArticlePackage({
+        title: this.title || articleTitle(this.app, file), markdown, formatted, coverRef: cover.path, themeId: this.wechatThemeId,
+        author: cfg.author, digest: this.wechatDigest || this.plugin.wechatFormatter.autoDigest(markdown),
+        resolveImage: async ref => {
+          const image = this.app.metadataCache.getFirstLinkpathDest(ref, file.path) || this.app.vault.getAbstractFileByPath(ref);
+          if (!image?.extension) return null;
+          const data = await this.publishableImage(await this.app.vault.readBinary(image), image);
+          const ext = image.extension.toLowerCase(), original = ['png', 'jpg', 'jpeg', 'gif'].includes(ext);
+          return { fileName: original ? image.name : image.basename + '.png', data };
+        }
+      });
+      checkStopped(operation.controller.signal);
+      relay.jobs ||= [];
+      let record = relay.jobs.find(item => item.articlePath === file.path && item.server === relay.url && item.producerId === relay.producerId && item.deviceId === relay.deviceId && item.snapshotHash === packet.snapshotHash);
+      if (record) packet.requestId = record.requestId;
+      else {
+        record = { articlePath: file.path, server: relay.url, producerId: relay.producerId, deviceId: relay.deviceId, requestId: packet.requestId, snapshotHash: packet.snapshotHash, status: 'sending' };
+        relay.jobs.unshift(record); relay.jobs = relay.jobs.slice(0, 30);
+      }
+      // Persist identity before upload so a lost response can be retried with the same request ID.
+      await this.plugin.saveSettings();
+      this.wechatProgress = t('正在上传到服务器…'); this.renderBody();
+      const { job } = await this.plugin.browserRelayRequest('/v1/jobs', { packet, target: 'wechat', deviceId: relay.deviceId, retry: ['failed', 'needs_review'].includes(record.status) });
+      Object.assign(record, { id: job.id, status: job.status, url: job.url || '', error: job.error || '' });
+      await this.plugin.saveSettings();
+      this.wechatProgress = t(({ draft_saved: '目标浏览器已创建草稿，请在该浏览器检查排版', uncertain: '结果待核对，请先在目标浏览器检查草稿箱', expired: '此任务已过期，请先核对目标浏览器的草稿箱' })[job.status] || '任务已交给服务器，可关闭 Obsidian；目标 Chrome 在线后处理');
+      new Notice(this.wechatProgress, 8000);
+    } catch (error) { this.wechatError = error.message; new Notice(error.message, 8000); }
+    finally { this.busy = false; this.finishTask(operation); this.remember(); this.render(); }
   }
   /* ================= X 发布 ================= */
 
@@ -2949,6 +2997,13 @@ class BDSettingTab extends PluginSettingTab {
   renderWechatPage(body) {
     const cfg = this.plugin.settings.wechat ||= {};
 
+    const delivery = this.group(body, t('发送方式')).body;
+    const mode = this.row(delivery, t('公众号草稿'), t('浏览器方式通过服务器交接文章，使用目标 Chrome 已登录的账号。'));
+    const select = mode.controls.createEl('select', { cls: 'bd-select', attr: { 'aria-label': t('公众号发送方式') } });
+    for (const [value, label] of [['api', '公众号官方 API'], ['browser', '服务器 → Chrome 浏览器（测试版）']]) select.createEl('option', { value, text: t(label) }).selected = (cfg.delivery || 'api') === value;
+    select.onchange = async () => { cfg.delivery = select.value; await this.plugin.saveSettings(); this.display(); this.plugin.view?.renderBody(); };
+    if (cfg.delivery === 'browser') { this.renderBrowserRelay(body); return; }
+
     const account = this.group(body, t('公众号账号')).body;
     const appRow = this.row(account, t('AppID'), t('公众号后台「设置与开发 → 基本配置」里的开发者 ID，需为已认证公众号。'));
     const appLink = appRow.info.querySelector('.bd-settings-description').createEl('a', { cls: 'bd-settings-link', text: t('点此获取'), href: 'https://mp.weixin.qq.com/' });
@@ -3134,6 +3189,29 @@ class BDSettingTab extends PluginSettingTab {
     about.createEl('p', { cls: 'bd-settings-description', text: t('从文章内容构思封面，先规划、再批量生成正文配图，并按位置插入文章。封面与配图共用风格模板库。') });
     for (const [name, value] of [[t('版本'), this.plugin.manifest.version], ['Obsidian', this.plugin.manifest.minAppVersion + t(' 或更新版本')], [t('使用范围'), t('桌面版')], [t('内置与自定义模板'), String(promptTemplates(this.plugin.settings).length) + t(' 个')]]) { const row = this.row(about, name, ''); row.controls.createSpan({ text: value }); }
   }
+  renderBrowserRelay(body) {
+    const cfg = this.plugin.settings.publishRelay ||= {};
+    const group = this.group(body, t('发布服务器')).body;
+    const address = this.row(group, t('服务器地址'), t('跨设备需要 HTTPS；只上传主动发送的文章和图片。'));
+    const urlInput = this.input(address, 'publishRelayUrl', cfg.url || '', 'https://publish.example.com');
+    const pairing = this.row(group, t('Obsidian 配对码'), t('使用服务器生成的一次性 producer 配对码。设备密钥保存在系统密钥串。'), true);
+    const code = pairing.controls.createEl('input', { cls: 'bd-settings-input', attr: { type: 'password', autocomplete: 'off', 'aria-label': t('Obsidian 配对码') } });
+    this.button(pairing.controls, t('连接服务器'), async () => {
+      await this.plugin.pairPublishRelay(urlInput.value.trim(), code.value.trim()); code.value = '';
+      this.relayDevices = (await this.plugin.browserRelayRequest('/v1/devices')).devices; this.display();
+      new Notice(t('服务器已连接，请选择已配对的 Chrome 浏览器'));
+    }, true, 'link');
+    const target = this.row(group, t('目标浏览器'), t('在另一台设备安装发布助手并用 browser 配对码连接同一服务器。'));
+    const devices = this.relayDevices || [];
+    const picker = target.controls.createEl('select', { cls: 'bd-select', attr: { 'aria-label': t('目标浏览器') } });
+    picker.createEl('option', { value: '', text: t('选择浏览器') });
+    if (cfg.deviceId && !devices.some(device => device.id === cfg.deviceId)) picker.createEl('option', { value: cfg.deviceId, text: cfg.deviceLabel || cfg.deviceId });
+    for (const device of devices) picker.createEl('option', { value: device.id, text: device.label });
+    picker.value = cfg.deviceId || '';
+    picker.onchange = async () => { cfg.deviceId = picker.value; cfg.deviceLabel = devices.find(device => device.id === picker.value)?.label || ''; await this.plugin.saveSettings(); };
+    this.button(target.controls, t('刷新浏览器'), async () => { this.relayDevices = (await this.plugin.browserRelayRequest('/v1/devices')).devices; this.display(); }, false, 'refresh-cw');
+    if (cfg.url) group.createDiv({ cls: 'bd-settings-description', text: t('已连接：') + cfg.url });
+  }
 }
 
 /* ================= 插件入口 ================= */
@@ -3279,6 +3357,40 @@ module.exports = class BananaDesignPlugin extends Plugin {
     await this.saveSettings();
   }
   async saveWechatSecret(secret) { return this.storeWechatSecret(this.settings.wechat ||= {}, 'secretId', secret, 'appsecret'); }
+  publishRelayOrigin(value) {
+    const url = new URL(value);
+    if (url.username || url.password || url.search || url.hash || (url.pathname !== '/' && url.pathname !== '')) throw new Error(t('请填写服务器根地址'));
+    if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname))) throw new Error(t('跨设备连接需要 HTTPS'));
+    return url.origin;
+  }
+  async browserRelayRequest(route, body, override) {
+    const cfg = override || this.settings.publishRelay || {};
+    const url = this.publishRelayOrigin(cfg.url);
+    const token = cfg.token || this.readWechatSecret(cfg.secretId, t('发布设备密钥'));
+    if (!token && route !== '/v1/pair') throw new Error(t('请先连接发布服务器'));
+    const response = await requestUrl({ url: url + route, method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), throw: false });
+    const result = response.json;
+    if (response.status < 200 || response.status >= 300) throw new Error(result?.error || t('服务器请求失败'));
+    return result;
+  }
+  async pairPublishRelay(value, code) {
+    this.ensureWechatSecretStorage();
+    const url = this.publishRelayOrigin(value);
+    const result = await this.browserRelayRequest('/v1/pair', { code }, { url });
+    if (result.device?.role !== 'producer' || !result.token) throw new Error(t('请使用 Obsidian 的 producer 配对码'));
+    const previous = this.settings.publishRelay, secretId = 'banana-design-publish-relay-' + require('crypto').randomUUID();
+    await this.app.secretStorage.setSecret(secretId, result.token);
+    this.settings.publishRelay = { url, secretId, producerId: result.device.id, jobs: previous?.url === url ? previous.jobs || [] : [] };
+    try { await this.saveSettings(); }
+    catch (error) { this.settings.publishRelay = previous; await this.app.secretStorage.deleteSecret(secretId).catch(() => {}); throw error; }
+    if (previous?.secretId) await this.app.secretStorage.deleteSecret(previous.secretId).catch(() => {});
+  }
+  async refreshBrowserJob(record) {
+    if (record.server !== this.settings.publishRelay?.url || record.producerId !== this.settings.publishRelay?.producerId) throw new Error(t('此任务属于之前的服务器或设备配对'));
+    const { job } = await this.browserRelayRequest('/v1/jobs/' + record.id);
+    Object.assign(record, { status: job.status, url: job.url || '', error: job.error || '' });
+    await this.saveSettings();
+  }
   /* SSH 中转的连接原料：设置里的明文字段 + 密钥串里的密码/私钥/口令。 */
   wechatSshRaw() {
     const ssh = this.settings.wechat?.ssh || {};
