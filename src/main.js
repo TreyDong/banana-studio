@@ -2111,13 +2111,9 @@ class BDView extends ItemView {
   async renderArticleTab(B) {
     const f = this.activeFile(); const page = B.createDiv('bd-article-page');
     const top = page.createDiv('bd-article-toolbar'), heading = top.createDiv(); heading.createSpan({ cls: 'bd-stage-title', text: t('文章检查') });
-    heading.createDiv({ cls: 'bd-article-note', text: t('检查已保存的正文与图片；选择公众号或 X，查看对应版本并发布。') });
     if (!f) { this.emptyStage(page, t('先选择一篇文章'), t('文章正文与插入后的图片会显示在这里。'), 'file-text'); return; }
     this.button(top, t('打开原文'), () => this.app.workspace.getLeaf('tab').openFile(f), 'bd-btn', 'external-link');
     this.renderPendingFigures(page);
-    const channels = page.createDiv('bd-article-channels');
-    this.button(channels, t('查看公众号版本'), () => this.navigateTab('wechat'), 'bd-btn', 'send');
-    this.button(channels, t('查看 X 版本'), () => this.navigateTab('x'), 'bd-btn', 'at-sign');
     const holder = page.createDiv('bd-article markdown-rendered'); const md = await this.articleMarkdown(f);
     if (holder.isConnected) await MarkdownRenderer.render(this.app, md, holder, f.path, this);
   }
