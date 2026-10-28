@@ -523,3 +523,24 @@
 .bd-figure-adjust { margin-top:10px; }
 .bd-cover-retry-row { display:flex; margin-top:6px; }
 .bd-cover-retry-row .bd-btn { padding:4px 10px; font-size:var(--bd-font-meta); color:var(--bd-muted); }
+
+/* Canvas-copy editing row inside the cover compose panel. */
+.bd-cover-text-row { display:flex; align-items:center; gap:8px; margin:2px 0 6px; flex-wrap:wrap; }
+.bd-cover-text-label { font-size:var(--bd-font-meta); color:var(--bd-muted); white-space:nowrap; }
+.bd-cover-text-headline, .bd-cover-text-sub { flex:1 1 120px; min-width:0; padding:4px 8px; font-size:12.5px; border:1px solid var(--bd-line); border-radius:5px; background:var(--bd-paper); color:var(--bd-ink); }
+.bd-cover-text-headline:focus-visible, .bd-cover-text-sub:focus-visible { outline:2px solid var(--bd-ink); outline-offset:1px; }
+.bd-cover-text-sub { flex:1 1 100px; }
+.bd-cover-text-source { font-size:var(--bd-font-meta); color:var(--bd-muted); white-space:nowrap; }
+.bd-cover-text-title { padding:3px 8px; font-size:var(--bd-font-meta); color:var(--bd-muted); }
+
+/* Region editing over the plain cover preview. */
+.bd-region-toggle.is-active { color:var(--bd-ink); border-color:var(--bd-ink); }
+.bd-region-wrap { position:relative; width:fit-content; max-width:100%; margin:0 auto; }
+.bd-region-layer { position:absolute; inset:0; cursor:crosshair; touch-action:none; }
+.bd-region-box { position:absolute; display:none; border:2px dashed #ff4c00; background:rgba(255,76,0,.16); pointer-events:none; }
+.bd-region-readout { position:absolute; top:6px; right:6px; padding:2px 7px; font-size:11px; color:#fff; background:#ff4c00d9; border-radius:4px; pointer-events:none; }
+.bd-region-panel { position:absolute; left:10px; right:10px; bottom:10px; display:flex; flex-direction:column; gap:6px; padding:10px; background:var(--bd-paper); border:1px solid var(--bd-line); border-radius:8px; box-shadow:0 10px 30px #0003; }
+.bd-region-panel.is-hidden { display:none; }
+.bd-region-panel-title { font-size:12.5px; color:var(--bd-ink); }
+.bd-region-instruction { resize:vertical; min-height:44px; }
+.bd-region-actions { display:flex; gap:8px; justify-content:flex-end; }

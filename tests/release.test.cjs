@@ -52,7 +52,7 @@ function flowNode(options={}) {
 }
 function flowText(node){return [node.text,...node.children.map(flowText)].join(' ');}
 function flowView(overrides={}) {
-  return Object.assign(Object.create(hooks.BDView.prototype),{plugin:{},figures:[],refs:[],figureRequirements:'',activeFile:()=>({path:'Flow.md'}),remember(){},renderStopButton:()=>null,navigateTab(key){this.destination=key;},...overrides});
+  return Object.assign(Object.create(hooks.BDView.prototype),{plugin:{settings:{}},figures:[],refs:[],figureRequirements:'',activeFile:()=>({path:'Flow.md'}),remember(){},renderStopButton:()=>null,navigateTab(key){this.destination=key;},...overrides});
 }
 test('chosen planning and image services and model names are visible without hovering',()=>{
   i18n.configureLocale(()=>'zh'); const parent=flowNode();
@@ -62,7 +62,7 @@ test('chosen planning and image services and model names are visible without hov
   assert.equal(picker.attrs['aria-haspopup'],'menu');view.busy=true;assert.equal(view.renderModelPicker(flowNode()).disabled,true);
 });
 test('the complete cover composer renders the selected models and locks them with its controls',()=>{
-  const view=flowView({coverChat:[],coverChatDraft:'',coverCount:1,coverBatch:[],plugin:{activeConnection:()=>({name:'Selected service',model:'chosen-model'})},templatePickerLabel:()=> 'Style',canGenerateCover:()=>true});
+  const view=flowView({coverChat:[],coverChatDraft:'',coverCount:1,coverBatch:[],plugin:{settings:{},activeConnection:()=>({name:'Selected service',model:'chosen-model'})},templatePickerLabel:()=> 'Style',canGenerateCover:()=>true});
   const panel=flowNode(),fields=flowNode();view.renderCoverConversation(panel,fields);
   assert.match(flowText(panel),/Selected service · chosen-model/);assert.match(flowText(panel),/生成/);
   view.busy=true;const locked=flowNode();view.renderCoverConversation(locked,flowNode());
