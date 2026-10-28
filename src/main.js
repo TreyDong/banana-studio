@@ -2970,6 +2970,7 @@ function renderServiceCards(plugin, body, redraw) {
 class ModelManagerModal extends Modal {
   constructor(plugin, done) { super(plugin.app); this.plugin = plugin; this.done = done; }
   onOpen() {
+    this.modalEl.addClass('bd-service-modal');
     this.setTitle(t('模型与连接')); this.contentEl.addClass('bd-settings'); this.contentEl.addClass('bd-model-manager');
     const render = () => { this.contentEl.empty(); renderServiceCards(this.plugin, this.contentEl, render); }; render();
   }
@@ -2981,6 +2982,7 @@ class ProviderModal extends Modal {
     this.requestController = new AbortController(); this.dialogClosed = false;
   }
   onOpen() {
+    this.modalEl.addClass('bd-service-modal');
     this.contentEl.addClass('bd-settings'); this.contentEl.addClass('bd-provider-modal');
     if (this.connection) this.renderForm(this.plugin.services.preset(this.kind, this.connection.provider)); else this.renderGallery();
   }
