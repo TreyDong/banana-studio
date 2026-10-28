@@ -20,7 +20,7 @@
 .bd-app { height:100%; display:flex; flex-direction:column; font-family:var(--font-interface); font-size:var(--bd-font-body); line-height:1.5; overflow:hidden; background:var(--bd-paper); }
 .bd-app *, .bd-app *::before, .bd-app *::after { box-sizing:border-box; }
 .bd-app :is(button,input,textarea,select) { font:inherit; color:var(--bd-ink); }
-.bd-app button { cursor:pointer; height:auto; box-shadow:none; margin:0; border:1px solid var(--bd-line); background:transparent; line-height:1.4; transition:background .15s,border-color .15s; }
+.bd-app button { cursor:pointer; height:auto; box-shadow:none; margin:0; border:1px solid var(--bd-line); background:transparent; line-height:1.4; transition:background var(--bd-transition-duration,.15s),border-color var(--bd-transition-duration,.15s); }
 .bd-app button:hover:not(:disabled) { background:var(--bd-hover); border-color:color-mix(in srgb,var(--bd-ink) 28%,transparent); }
 .bd-app button:disabled { opacity:.45; cursor:default; }
 .bd-app :is(button,input,textarea,select):focus-visible { outline:2px solid var(--bd-accent); outline-offset:3px; }
@@ -228,10 +228,10 @@
   .bd-article { padding:20px; font-size:14px; }
   .bd-article h1 { font-size:22px; }
 }
-@media (prefers-reduced-motion:reduce) { .bd-app * { transition:none !important; } }
+@media (prefers-reduced-motion:reduce) { .bd-app { --bd-transition-duration:0s; } }
 /* Icon-only buttons keep their accessible label without stretching the toolbar. */
 .bd-icon-button { position:relative; }
-.bd-icon-button > span:last-child { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+.bd-icon-button > span:last-child { position:absolute; width:1px; height:1px; overflow:hidden; opacity:0; pointer-events:none; white-space:nowrap; }
 
 .bd-size-row { display:flex; align-items:center; gap:8px; margin-top:8px; }
 .bd-size-row .bd-input { flex:1; width:0; }
@@ -430,7 +430,7 @@
 .bd-service-actions { display:flex; align-items:center; gap:4px; }
 .bd-settings .bd-service-actions .bd-settings-button { border:0; min-height:30px; padding:5px 7px; color:var(--bd-muted); }
 .bd-service-note { margin-top:20px; }
-.modal:has(.bd-provider-modal),.modal:has(.bd-model-manager) { width:660px; max-width:calc(100vw - 36px); }
+.modal.bd-service-modal { width:660px; max-width:calc(100vw - 36px); }
 .bd-provider-modal,.bd-model-manager { max-height:72vh; overflow:auto; padding:0 3px 4px; }
 .bd-provider-gallery { max-height:52vh; overflow:auto; margin-top:14px; padding-right:5px; }
 .bd-provider-group { margin:20px 0 10px; font-size:var(--bd-font-meta); font-weight:600; color:var(--bd-muted); }

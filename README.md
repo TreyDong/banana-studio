@@ -51,6 +51,8 @@ npm run check
 
 `npm run build` creates an unminified CommonJS `main.js` in the project root. Release assets are `main.js`, `manifest.json`, and `styles.css` under a tag that matches the manifest version (no `v` prefix).
 
+Pushing a stable version tag runs the release workflow: it checks version metadata, builds and tests the plugin, then publishes those three files as individual GitHub Release assets. Keep ZIP archives out of the plugin release; Obsidian downloads only the individual files.
+
 For changes in each release, see the [GitHub Releases](https://github.com/TreyDong/banana-design/releases) page.
 
 ## License

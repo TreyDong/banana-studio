@@ -1,0 +1,68 @@
+name: Release plugin
+
+on:
+  push:
+    tags:
+      - '[0-9]*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Validate release metadata
+        run: |
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+          const manifest = require('./manifest.json');
+          const pkg = require('./package.json');
+          const lock = require('./package-lock.json');
+          const versions = require('./versions.json');
+          assert.match(process.env.RELEASE_TAG, /^\d+\.\d+\.\d+$/);
+          for (const version of [manifest.version, pkg.version, lock.version, lock.packages[''].version]) {
+            assert.equal(version, process.env.RELEASE_TAG, 'Release tag and metadata must match');
+          }
+          assert.equal(versions[manifest.version], manifest.minAppVersion);
+          NODE
+      - run: npm ci
+      - run: npm run check
+      - name: Upload and verify the three Obsidian assets
+        run: |
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "$RELEASE_TAG" --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" main.js manifest.json styles.css --clobber
+          gh release view "$RELEASE_TAG" --json assets > release-assets.json
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const { assets } = require('./release-assets.json');
+          assert.deepEqual(assets.map(asset => asset.name).sort(), ['main.js', 'manifest.json', 'styles.css']);
+          for (const asset of assets) {
+            assert.equal(asset.state, 'uploaded');
+            assert.equal(asset.size, fs.statSync(asset.name).size);
+          }
+          NODE
+          verify_dir="$(mktemp -d)"
+          gh release download "$RELEASE_TAG" --dir "$verify_dir"
+          for asset in main.js manifest.json styles.css; do
+            cmp "$asset" "$verify_dir/$asset"
+          done
+      - name: Publish the verified release
+        run: gh release edit "$RELEASE_TAG" --draft=false --latest
