@@ -4,7 +4,7 @@
 
 Create article-led covers and illustrations in Obsidian desktop. Choose an article, a visual template, and independent planning and image services. Preview results, export PNGs, and insert illustrations at approved locations.
 
-**Desktop only · Obsidian 1.11.4 or later · Version 0.11.1-design.7**
+**Desktop only · Obsidian 1.11.4 or later · Version 0.12.0**
 
 ## Use
 
