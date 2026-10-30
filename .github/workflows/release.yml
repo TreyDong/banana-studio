@@ -17,6 +17,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     env:
       RELEASE_TAG: ${{ github.ref_name }}
       GH_TOKEN: ${{ github.token }}
@@ -42,6 +45,13 @@ jobs:
           NODE
       - run: npm ci
       - run: npm run check
+      - name: Attest the Obsidian release assets
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
       - name: Upload and verify the three Obsidian assets
         run: |
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then

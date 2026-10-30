@@ -4,7 +4,7 @@ Create covers and illustrations from Markdown articles in [Obsidian](https://obs
 
 **Desktop only · Obsidian 1.11.4 or later**
 
-Banana Studio is developed in its own repository, starting from [Banana Design](https://github.com/TreyDong/banana-design) commit `ce8aa777ed432b33b168068f922b620df813402f`. The existing Git history, license, and third-party notices are retained. The product name is **Banana Studio**, with no subtitle.
+Banana Studio is developed in its own repository, starting from [Banana Design](https://github.com/TreyDong/banana-design) commit `ce8aa777ed432b33b168068f922b620df813402f`. The existing Git history, license, and third-party notices are retained.
 
 ## Features
 
@@ -18,7 +18,9 @@ Banana Studio is developed in its own repository, starting from [Banana Design](
 
 ## Installation
 
-This repository has not published a Banana Studio release yet. Build from source using the development instructions below, then copy `main.js`, `manifest.json`, and `styles.css` into `<vault>/.obsidian/plugins/banana-studio/` and enable the plugin.
+Download `main.js`, `manifest.json`, and `styles.css` from the matching [GitHub Release](https://github.com/TreyDong/banana-studio/releases), copy them into `<vault>/.obsidian/plugins/banana-studio/`, and enable the plugin. You can also install `TreyDong/banana-studio` with [BRAT](https://github.com/TfTHacker/obsidian42-brat). Community directory submission is in preparation; manual installation and BRAT are available independently of directory approval.
+
+The release package is larger than 5 MB, so Obsidian Sync Standard cannot sync it; install the plugin separately on each desktop if you use that plan.
 
 Banana Studio uses its own plugin ID (`banana-studio`), settings, and default image folder (`Banana Studio`). Existing Banana Design settings, credentials, and history are not imported automatically. Use a separate test vault for initial checks.
 
@@ -39,6 +41,8 @@ Configure **Planning** and **Image generation** separately in settings. New inst
 
 - The plugin is MIT licensed, with no payment gate, ads, author-operated service, or client-side telemetry. AI usage is billed by the provider you configure.
 - Only explicit requests send article text, prompts, or reference images to the chosen planning or image service. The vault is not scanned in the background.
+- **Accounts and network use:** AI generation requires an authenticated Codex CLI or access to your configured AI provider; account access and usage costs depend on that provider. Explicit generation requests send article text, prompts, or selected reference images to that service. WeChat and X publishing require the corresponding platform account and developer credentials, and send the selected content and images to that platform. Optional proxies and SSH relays connect only to servers you configure. Browser-based draft delivery uploads the article snapshot and images to your paired publishing relay and browser. There is no author-operated backend.
+- **Files outside the vault:** the optional Codex integration finds and starts your local CLI, uses an operating-system temporary job directory, and reads generated images only from that job directory or `~/.codex/generated_images`. The CLI uses its own existing sign-in. Local reference images are read only when selected; an optional SSH private-key file is read only from the path you configure.
 - Session data lives in `<vault>/.obsidian/plugins/banana-studio/data.json`; generated PNGs stay in the configured vault folder. Syncing those locations may sync private content.
 - This is an independent community plugin, not an official Obsidian, Qiaomu, OpenAI, or Dan Koe product.
 
@@ -53,7 +57,7 @@ npm run check
 
 `npm run build` creates an unminified CommonJS `main.js` in the project root. The plugin files are `main.js`, `manifest.json`, and `styles.css`.
 
-The inherited version is `0.12.1`; it identifies the starting code and does not represent a published Banana Studio release. Future release tags must match the manifest version (no `v` prefix). Pushing a stable version tag runs the release workflow, which checks version metadata, builds and tests the plugin, then publishes those three files as individual GitHub Release assets.
+Banana Studio starts from Banana Design 0.12.1; its first independent release is `0.12.2`. Release tags must match the manifest version (no `v` prefix). Pushing a stable version tag runs the release workflow, which checks version metadata, builds and tests the plugin, then publishes those three files as individual GitHub Release assets.
 
 Project decisions are recorded in [notes/](notes/). The initial project boundary and source are recorded in [the initialization note](notes/banana-studio-initialization-2026-10-30.md).
 
