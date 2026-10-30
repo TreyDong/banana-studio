@@ -1,7 +1,7 @@
 'use strict';
 const { t, configureLocale, imageCount, currentLanguage } = require('./i18n');
 const templateSelection = require('./templates/selection');
-/* Banana Design — 文章封面与正文配图工作台。
+/* Banana Studio — 文章配图、平台预览与发布。
  * 构思与图片服务独立配置；默认沿用本机 Codex 登录。
  */
 const {
@@ -13,7 +13,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const VIEW = 'banana-cover-view';
+const VIEW = 'banana-studio-view';
 const MAX_COVER_COUNT = 4;
 function coverQuantity(value) { const n = Number(value); return Number.isFinite(n) ? Math.max(1, Math.min(MAX_COVER_COUNT, Math.floor(n))) : 1; }
 
@@ -112,7 +112,7 @@ function session(bin) {
   if (shared) return shared;
   const rpc = new Rpc(bin, os.tmpdir());
   const ready = (async () => {
-    await rpc.request('initialize', { clientInfo: { name: 'banana_design', title: 'Banana Design', version: '0.10.2' } }, 20000);
+    await rpc.request('initialize', { clientInfo: { name: 'banana_studio', title: 'Banana Studio', version: require('../manifest.json').version } }, 20000);
     rpc.notify('initialized');
   })();
   shared = { bin, rpc, ready, busy: 0, idle: null };
@@ -153,7 +153,7 @@ async function runTurn(bin, instructions, text, cwd, write, references, model, t
   const ms = Math.max(30, timeoutSec || 300) * 1000, timer = setTimeout(() => finish('timeout'), ms);
   try {
     checkStopped(signal); await wait(sess.ready); checkStopped(signal);
-    const thread = await wait(sess.rpc.request('thread/start', Object.assign({ cwd, approvalPolicy: 'never', sandbox: write ? 'workspace-write' : 'read-only', ephemeral: true, serviceName: 'banana_design' }, model ? { model } : {}, { developerInstructions: instructions })));
+    const thread = await wait(sess.rpc.request('thread/start', Object.assign({ cwd, approvalPolicy: 'never', sandbox: write ? 'workspace-write' : 'read-only', ephemeral: true, serviceName: 'banana_studio' }, model ? { model } : {}, { developerInstructions: instructions })));
     threadId = thread.thread?.id || ''; if (!threadId) throw new Error(t('codex 未返回 thread id')); checkStopped(signal);
     // Keep the acknowledgement handler alive if Stop wins the race: a late
     // turn/start reply still supplies the exact turn ID that must be interrupted.
@@ -738,7 +738,7 @@ async function ensureFolder(adapter, folderPath) {
   return cur;
 }
 
-const DEFAULT_OUTPUT_FOLDER = 'Banana Design';
+const DEFAULT_OUTPUT_FOLDER = 'Banana Studio';
 const DEFAULT_TASK_PATTERN = '{article}-{source}/{date}_{time}-{type}-{task}';
 const DEFAULT_IMAGE_PATTERN = '{type}-{index}';
 const OUTPUT_TOKENS = { article: '文章名', notePath: '文章所在目录', source: '文章来源编号', date: '日期', time: '时间', type: '任务或图片类型', task: '本次任务编号', index: '两位图片序号', title: '图片主题' };
@@ -761,7 +761,7 @@ function validateOutputPattern(pattern, filename = false) {
 }
 function outputRules(settings) {
   const outputFolder = imageFolder(settings.outputFolder, DEFAULT_OUTPUT_FOLDER);
-  if (!outputFolder) throw new Error(t('请填写插件文件夹，例如 Banana Design'));
+  if (!outputFolder) throw new Error(t('请填写插件文件夹，例如 Banana Studio'));
   const taskFolderPattern = String(settings.taskFolderPattern || DEFAULT_TASK_PATTERN).trim();
   const imageNamePattern = String(settings.imageNamePattern || DEFAULT_IMAGE_PATTERN).trim().replace(/\.png$/i, '');
   if (!taskFolderPattern || !imageNamePattern) throw new Error(t('目录规则和图片名称不能为空'));
@@ -791,11 +791,11 @@ async function saveImage(app, folder, baseName, buf, ext) {
   throw new Error(t('无法创建新的图片版本，请重试'));
 }
 
-function imageFolder(value, fallback = 'Banana Design') {
+function imageFolder(value, fallback = 'Banana Studio') {
   const raw = String(value ?? '').trim().replace(/\\/g, '/') || fallback;
   if (raw === '.') return '';
   const parts = raw.split('/').filter(Boolean);
-  if (/^(?:\/|~|[a-z]+:)/i.test(raw) || /[:*?"<>|\x00-\x1f]/.test(raw) || parts.some(p => p === '..' || ['.obsidian', '.git', '.agents', '.codex'].includes(p.toLowerCase()))) throw new Error(t('请填写笔记库内的文件夹路径，例如 Banana Design'));
+  if (/^(?:\/|~|[a-z]+:)/i.test(raw) || /[:*?"<>|\x00-\x1f]/.test(raw) || parts.some(p => p === '..' || ['.obsidian', '.git', '.agents', '.codex'].includes(p.toLowerCase()))) throw new Error(t('请填写笔记库内的文件夹路径，例如 Banana Studio'));
   return parts.filter(p => p !== '.').join('/');
 }
 
@@ -944,7 +944,7 @@ class BDView extends ItemView {
     this.operation = null; this.viewClosed = false;
   }
   getViewType() { return VIEW; }
-  getDisplayText() { return 'Banana Design'; }
+  getDisplayText() { return 'Banana Studio'; }
   getIcon() { return 'image'; }
   async onOpen() {
     this.viewClosed = false;
@@ -1557,7 +1557,7 @@ class BDView extends ItemView {
     } catch (e) { this.renderError(e); }
   }
   renderHead(app) {
-    const head = app.createDiv('bd-head'); const brand = head.createDiv('bd-brand'); this.addIcon(brand, 'aperture'); brand.createSpan({ text: 'Banana Design' });
+    const head = app.createDiv('bd-head'); const brand = head.createDiv('bd-brand'); this.addIcon(brand, 'aperture'); brand.createSpan({ text: 'Banana Studio' });
     const actions = head.createDiv('bd-head-actions');
     actions.createSpan({ cls: 'bd-article-context', text: t('当前文章') });
     const article = this.button(actions, this.activeFile() ? articleTitle(this.app, this.activeFile()) : t('选择文章'), () => this.pickArticle(), 'bd-article-picker', 'file-text');
@@ -2405,7 +2405,7 @@ class BDView extends ItemView {
         actionSec.createDiv({ cls: 'bd-wechat-hint', text: t(labels[record.status] || record.status) + (record.error ? ' · ' + record.error : '') });
         if (record.id) this.button(actionSec, t('检查任务状态'), async () => { await this.plugin.refreshBrowserJob(record); this.renderBody(); }, 'bd-btn', 'refresh-cw').disabled = this.busy;
       } else actionSec.createDiv({ cls: 'bd-wechat-hint', text: t('文章和图片会上传到已配对服务器，由目标浏览器创建公众号草稿。') });
-    } else if (!String(cfg.appId || '').trim()) actionSec.createDiv({ cls: 'bd-wechat-hint', text: t('尚未配置 AppID：请到「设置 → Banana Design → 公众号发布」完成配置后再推送。') });
+    } else if (!String(cfg.appId || '').trim()) actionSec.createDiv({ cls: 'bd-wechat-hint', text: t('尚未配置 AppID：请到「设置 → Banana Studio → 公众号发布」完成配置后再推送。') });
     if (this.operation?.kind === 'wechat') {
       actionSec.createDiv({ cls: 'bd-wechat-progress', text: this.wechatProgress || this.progress });
       if (!browserDelivery) this.renderStopButton(actionSec, 'bd-btn bd-full');
@@ -2682,7 +2682,7 @@ class BDView extends ItemView {
     const actionRow = actionSec.createDiv('bd-wechat-actions');
     this.button(actionRow, t('复制全部'), () => this.copyXTweets().catch(e => new Notice(e.message, 7000)), 'bd-btn', 'clipboard-copy').disabled = this.busy;
     this.button(actionRow, t('发布到 X'), () => this.publishX().catch(e => new Notice(e.message, 7000)), 'bd-btn bd-primary', 'send').disabled = this.busy;
-    if (!String(cfg.consumerKey || '').trim()) actionSec.createDiv({ cls: 'bd-wechat-hint', text: t('尚未配置 X 密钥：请到「设置 → Banana Design → X」完成配置；未配置也可以复制后手动发。') });
+    if (!String(cfg.consumerKey || '').trim()) actionSec.createDiv({ cls: 'bd-wechat-hint', text: t('尚未配置 X 密钥：请到「设置 → Banana Studio → X」完成配置；未配置也可以复制后手动发。') });
     if (this.operation?.kind === 'x') {
       actionSec.createDiv({ cls: 'bd-wechat-progress', text: this.xProgress || this.progress });
       this.renderStopButton(actionSec, 'bd-btn bd-full');
@@ -3068,7 +3068,7 @@ class ProviderModal extends Modal {
         await this.plugin.serviceKey(config, key);
         if (key) {
           if (!this.app.secretStorage) throw new Error(t('当前 Obsidian 不支持密钥库，请更新到 1.11.4 或更新版本'));
-          config.secretId = 'banana-design-' + this.kind + '-' + require('crypto').randomUUID();
+          config.secretId = 'banana-studio-' + this.kind + '-' + require('crypto').randomUUID();
           await this.app.secretStorage.setSecret(config.secretId, key);
         }
         if (this.dialogClosed) return;
@@ -3117,8 +3117,8 @@ class BDSettingTab extends PluginSettingTab {
   renderBody() {
     const root = this.containerEl; root.empty(); root.addClass('bd-settings');
     const head = root.createDiv('bd-settings-head'), identity = head.createDiv('bd-settings-identity');
-    this.addSettingsIcon(identity, 'aperture'); identity.createSpan({ cls: 'bd-settings-name', text: 'Banana Design' }); identity.createSpan({ cls: 'bd-settings-version', text: 'v' + this.plugin.manifest.version });
-    const tabs = head.createDiv({ cls: 'bd-settings-tabs', attr: { role: 'tablist', 'aria-label': t('Banana Design 设置') } });
+    this.addSettingsIcon(identity, 'aperture'); identity.createSpan({ cls: 'bd-settings-name', text: 'Banana Studio' }); identity.createSpan({ cls: 'bd-settings-version', text: 'v' + this.plugin.manifest.version });
+    const tabs = head.createDiv({ cls: 'bd-settings-tabs', attr: { role: 'tablist', 'aria-label': t('Banana Studio 设置') } });
     for (const [key, name, icon] of [['files', t('文件与命名'), 'folder-open'], ['models', t('模型与连接'), 'sliders-horizontal'], ['wechat', t('公众号发布'), 'send'], ['x', t('X 发布'), 'at-sign'], ['about', t('关于'), 'info']]) {
       const b = this.button(tabs, name, () => { this.settingsPage = key; this.renderBody(); }, false, icon); b.className = 'bd-settings-tab' + (this.settingsPage === key ? ' is-active' : '');
       b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(this.settingsPage === key));
@@ -3365,7 +3365,7 @@ class BDSettingTab extends PluginSettingTab {
     if (cfg.network === 'ssh' && !this.plugin.wechatRelayConfigured()) network.createDiv({ cls: 'bd-settings-description', text: t('SSH 中转尚未启用：请到「公众号发布」设置的固定 IP 中转里打开开关并填写服务器信息。') });
   }
   renderAbout(body) {
-    const about = this.group(body, 'Banana Design').body;
+    const about = this.group(body, 'Banana Studio').body;
     about.createEl('p', { cls: 'bd-settings-description', text: t('从文章内容构思封面，先规划、再批量生成正文配图，并按位置插入文章。封面与配图共用风格模板库。') });
     for (const [name, value] of [[t('版本'), this.plugin.manifest.version], ['Obsidian', this.plugin.manifest.minAppVersion + t(' 或更新版本')], [t('使用范围'), t('桌面版')], [t('内置与自定义模板'), String(promptTemplates(this.plugin.settings).length) + t(' 个')]]) { const row = this.row(about, name, ''); row.controls.createSpan({ text: value }); }
   }
@@ -3400,7 +3400,7 @@ const X_DEFAULTS = { auth: 'oauth1', clientId: '', oauth2SecretId: '', oauth2Acc
 const WECHAT_SSH_DEFAULTS = { enabled: false, host: '', port: 22, username: '', keyPath: '', passwordSecretId: '', keySecretId: '', passphraseSecretId: '', hostKeyFingerprint: '' };
 const DEFAULTS = { language: 'auto', codexPath: '', outputFolder: DEFAULT_OUTPUT_FOLDER, taskFolderPattern: DEFAULT_TASK_PATTERN, imageNamePattern: DEFAULT_IMAGE_PATTERN, model: '', modelServices: null, sessions: {}, lastArticle: '', promptTemplates: [], deletedPromptTemplates: [], hiddenPromptTemplates: [], wechat: { appId: '', secretId: '', author: '', defaultTheme: 'minimal', ssh: { ...WECHAT_SSH_DEFAULTS } }, x: { ...X_DEFAULTS } };
 
-module.exports = class BananaDesignPlugin extends Plugin {
+module.exports = class BananaStudioPlugin extends Plugin {
   async onload() {
     document.getElementById('bd-styles')?.remove();
     this.layout = require('./rendering/cover-layout.js');
@@ -3430,7 +3430,7 @@ module.exports = class BananaDesignPlugin extends Plugin {
       this.view = new BDView(leaf, this);
       return this.view;
     });
-    this.ribbon = this.addRibbonIcon('image', t('Banana Design 配图工作台'), () => this.activateView());
+    this.ribbon = this.addRibbonIcon('image', t('Banana Studio'), () => this.activateView());
     this.openCommand = { id: 'open', name: t('打开配图工作台'), callback: () => this.activateView() };
     this.openCommand = this.addCommand(this.openCommand) || this.openCommand;
     this.addSettingTab(new BDSettingTab(this.app, this));
@@ -3475,7 +3475,7 @@ module.exports = class BananaDesignPlugin extends Plugin {
     this.settings.language = language;
     try { await this.saveSettings(); } catch (e) { this.settings.language = previous; throw e; }
     if (this.openCommand) this.openCommand.name = t('打开配图工作台');
-    this.ribbon?.setAttribute('aria-label', t('Banana Design 配图工作台'));
+    this.ribbon?.setAttribute('aria-label', t('Banana Studio'));
     this.view?.render();
   }
   async serviceKey(config, override) {
@@ -3531,7 +3531,7 @@ module.exports = class BananaDesignPlugin extends Plugin {
     holder[key] = '';
     const secret = String(value || '').trim();
     if (secret) {
-      holder[key] = 'banana-design-wechat-' + label + '-' + require('crypto').randomUUID();
+      holder[key] = 'banana-studio-wechat-' + label + '-' + require('crypto').randomUUID();
       await this.app.secretStorage.setSecret(holder[key], secret);
     }
     await this.saveSettings();
@@ -3558,7 +3558,7 @@ module.exports = class BananaDesignPlugin extends Plugin {
     const url = this.publishRelayOrigin(value);
     const result = await this.browserRelayRequest('/v1/pair', { code }, { url });
     if (result.device?.role !== 'producer' || !result.token) throw new Error(t('请使用 Obsidian 的 producer 配对码'));
-    const previous = this.settings.publishRelay, secretId = 'banana-design-publish-relay-' + require('crypto').randomUUID();
+    const previous = this.settings.publishRelay, secretId = 'banana-studio-publish-relay-' + require('crypto').randomUUID();
     await this.app.secretStorage.setSecret(secretId, result.token);
     this.settings.publishRelay = { url, secretId, producerId: result.device.id, jobs: previous?.url === url ? previous.jobs || [] : [] };
     try { await this.saveSettings(); }
