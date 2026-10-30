@@ -1,7 +1,7 @@
 {
   "id": "banana-studio",
   "name": "Banana Studio",
-  "version": "0.12.2",
+  "version": "0.12.3",
   "minAppVersion": "1.11.4",
   "description": "Create covers and illustrations from Markdown articles, preview platform versions, and publish to WeChat and X.",
   "author": "Treydong",

@@ -1134,7 +1134,7 @@ class BDView extends ItemView {
     if (template.coverPreviewAsset === 'gpt-quiet-photo') return require('../assets/gpt-quiet-photo.webp');
     if (template.coverPreviewAsset === 'gpt-literary-painting') return require('../assets/gpt-literary-painting.webp');
     const asset = template.previewAsset;
-    if (asset === 'dan-koe') return require('../assets/dan-koe.png');
+    if (asset === 'dan-koe') return require('../assets/dan-koe-preview.jpg');
     if (asset === 'neon-card') return require('../assets/neon-card.svg');
     if (template.previewSvg) return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(template.previewSvg);
     return '';

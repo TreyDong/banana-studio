@@ -22,7 +22,7 @@ Install from the [Obsidian Community directory](https://community.obsidian.md/pl
 
 For manual installation, download `main.js`, `manifest.json`, and `styles.css` from the matching [GitHub Release](https://github.com/TreyDong/banana-studio/releases), copy them into `<vault>/.obsidian/plugins/banana-studio/`, and enable the plugin. You can also install `TreyDong/banana-studio` with [BRAT](https://github.com/TfTHacker/obsidian42-brat).
 
-The release package is larger than 5 MB, so Obsidian Sync Standard cannot sync it; install the plugin separately on each desktop if you use that plan.
+Release 0.12.3 uses compact built-in previews so its main plugin file stays below the 5 MB Obsidian Sync Standard limit.
 
 Banana Studio uses its own plugin ID (`banana-studio`), settings, and default image folder (`Banana Studio`). Existing Banana Design settings, credentials, and history are not imported automatically. Use a separate test vault for initial checks.
 

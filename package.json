@@ -1,6 +1,6 @@
 {
   "name": "banana-studio",
-  "version": "0.12.2",
+  "version": "0.12.3",
   "private": true,
   "description": "Create covers and illustrations from Markdown articles, preview platform versions, and publish to WeChat and X.",
   "license": "MIT",
