@@ -1,8 +1,10 @@
-# Banana Design
+# Banana Studio
 
-Create article-led covers and illustrations in [Obsidian](https://obsidian.md/) desktop. Choose an article, a visual template, and independent planning and image services. Preview results, export PNGs, and insert illustrations at approved locations.
+Create covers and illustrations from Markdown articles in [Obsidian](https://obsidian.md/) desktop, preview platform versions, and publish to WeChat Official Account or X.
 
 **Desktop only · Obsidian 1.11.4 or later**
+
+Banana Studio is developed in its own repository, starting from [Banana Design](https://github.com/TreyDong/banana-design) commit `ce8aa777ed432b33b168068f922b620df813402f`. The existing Git history, license, and third-party notices are retained. The product name is **Banana Studio**, with no subtitle.
 
 ## Features
 
@@ -16,13 +18,13 @@ Create article-led covers and illustrations in [Obsidian](https://obsidian.md/) 
 
 ## Installation
 
-Install from the [Obsidian Community plugins listing](https://community.obsidian.md/plugins/banana-design), or download `main.js`, `manifest.json`, and `styles.css` from the matching [GitHub Release](https://github.com/TreyDong/banana-design/releases) into `<vault>/.obsidian/plugins/banana-design/` and enable the plugin.
+This repository has not published a Banana Studio release yet. Build from source using the development instructions below, then copy `main.js`, `manifest.json`, and `styles.css` into `<vault>/.obsidian/plugins/banana-studio/` and enable the plugin.
 
-The release package is larger than 5 MB, so Obsidian Sync Standard cannot sync it; install the plugin separately on each desktop if you use that plan.
+Banana Studio uses its own plugin ID (`banana-studio`), settings, and default image folder (`Banana Studio`). Existing Banana Design settings, credentials, and history are not imported automatically. Use a separate test vault for initial checks.
 
 ## Getting started
 
-1. Enable the plugin and run **Open illustration workspace** (`banana-design:open`), or use the ribbon icon.
+1. Enable the plugin and run **Open illustration workspace** (`banana-studio:open`), or use the ribbon icon.
 2. Open a Markdown note (or click the ribbon while a note is active). The workspace has two stages: **Create images** (Cover / Body illustrations) and **Preview & publish** (Original article / WeChat / X).
 3. Choose a format and template, enter a request, and generate candidates. Reference images can be picked from disk or the vault.
 4. Export a PNG, insert a cover, or confirm a planned illustration batch. Restarting the workspace clears the current view; saved images and history remain.
@@ -37,7 +39,7 @@ Configure **Planning** and **Image generation** separately in settings. New inst
 
 - The plugin is MIT licensed, with no payment gate, ads, author-operated service, or client-side telemetry. AI usage is billed by the provider you configure.
 - Only explicit requests send article text, prompts, or reference images to the chosen planning or image service. The vault is not scanned in the background.
-- Session data lives in `<vault>/.obsidian/plugins/banana-design/data.json`; generated PNGs stay in the configured vault folder. Syncing those locations may sync private content.
+- Session data lives in `<vault>/.obsidian/plugins/banana-studio/data.json`; generated PNGs stay in the configured vault folder. Syncing those locations may sync private content.
 - This is an independent community plugin, not an official Obsidian, Qiaomu, OpenAI, or Dan Koe product.
 
 ## Development
@@ -49,12 +51,12 @@ npm ci
 npm run check
 ```
 
-`npm run build` creates an unminified CommonJS `main.js` in the project root. Release assets are `main.js`, `manifest.json`, and `styles.css` under a tag that matches the manifest version (no `v` prefix).
+`npm run build` creates an unminified CommonJS `main.js` in the project root. The plugin files are `main.js`, `manifest.json`, and `styles.css`.
 
-Pushing a stable version tag runs the release workflow: it checks version metadata, builds and tests the plugin, then publishes those three files as individual GitHub Release assets. Keep ZIP archives out of the plugin release; Obsidian downloads only the individual files.
+The inherited version is `0.12.1`; it identifies the starting code and does not represent a published Banana Studio release. Future release tags must match the manifest version (no `v` prefix). Pushing a stable version tag runs the release workflow, which checks version metadata, builds and tests the plugin, then publishes those three files as individual GitHub Release assets.
 
-For changes in each release, see the [GitHub Releases](https://github.com/TreyDong/banana-design/releases) page.
+Project decisions are recorded in [notes/](notes/). The initial project boundary and source are recorded in [the initialization note](notes/banana-studio-initialization-2026-10-30.md).
 
 ## License
 
-[MIT](LICENSE). Adapted Codex bridge and provider preset portions come from [Qiaomu Design](https://github.com/joeseesun/qiaomu-cover-design) by Xiangyang Qiaomu (joeseesun); see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+[MIT](LICENSE). Based on Banana Design by Treydong. Adapted Codex bridge and provider preset portions come from [Qiaomu Design](https://github.com/joeseesun/qiaomu-cover-design) by Xiangyang Qiaomu (joeseesun); see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

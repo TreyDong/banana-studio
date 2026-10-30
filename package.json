@@ -1,8 +1,8 @@
 {
-  "name": "banana-design",
+  "name": "banana-studio",
   "version": "0.12.1",
   "private": true,
-  "description": "Create article-led covers and illustrations with configurable AI services, previews, export, and anchored batch insertion.",
+  "description": "Create covers and illustrations from Markdown articles, preview platform versions, and publish to WeChat and X.",
   "license": "MIT",
   "scripts": {
     "build": "node scripts/build.mjs",

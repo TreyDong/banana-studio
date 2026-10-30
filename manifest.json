@@ -1,9 +1,9 @@
 {
-  "id": "banana-design",
-  "name": "Banana Design",
+  "id": "banana-studio",
+  "name": "Banana Studio",
   "version": "0.12.1",
   "minAppVersion": "1.11.4",
-  "description": "Create article-led covers and illustrations with configurable AI services, previews, export, and anchored batch insertion.",
+  "description": "Create covers and illustrations from Markdown articles, preview platform versions, and publish to WeChat and X.",
   "author": "Treydong",
   "isDesktopOnly": true,
   "authorUrl": "https://github.com/TreyDong"
