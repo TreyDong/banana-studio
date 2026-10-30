@@ -34,7 +34,7 @@ function load(filename, expose=false) {
   const mod={exports:{}}; const local=createRequire(filename);
   const safeRequire = id => {
     if(id==='obsidian') return host;
-    if(/\.(png|svg|webp)$/.test(id)) { const file=path.resolve(path.dirname(filename),id); return 'data:image/'+(id.endsWith('svg')?'svg+xml':id.endsWith('webp')?'webp':'png')+';base64,'+fs.readFileSync(file).toString('base64'); }
+    if(/\.(png|jpg|svg|webp)$/.test(id)) { const file=path.resolve(path.dirname(filename),id); return 'data:image/'+(id.endsWith('svg')?'svg+xml':id.endsWith('webp')?'webp':id.endsWith('jpg')?'jpeg':'png')+';base64,'+fs.readFileSync(file).toString('base64'); }
     if(id==='child_process') return {...require(id),spawn(){throw new Error('Unexpected child process during plugin load');},execFileSync(){throw new Error('Unexpected CLI discovery during plugin load');}};
     return local(id);
   };
@@ -217,6 +217,7 @@ test('workflow navigation rejects busy transitions and invalid targets without t
   assert.equal(hooks.BDView.prototype.navigateTab.call({render(){throw new Error('Invalid route');}},'unknown'),false);
 });
 test('standard three-file release loads without sibling modules, assets, network or CLI launch',async()=>{
+  assert.ok(fs.statSync(path.join(root,'main.js')).size < 5_000_000, 'Plugin bundle must stay below 5 MB for Obsidian Sync Standard');
   const temp=fs.mkdtempSync(path.join(os.tmpdir(),'bd-install-'));
   try {
     for(const file of ['main.js','manifest.json','styles.css']) fs.copyFileSync(path.join(root,file),path.join(temp,file));
@@ -234,7 +235,7 @@ test('standard three-file release loads without sibling modules, assets, network
       assert.ok(Plugin.testHooks.BDView.prototype.templatePreview.call({},template,'figure')===preview,'Bundled body style preview must load without sibling assets: '+template.id);
       assert.match(preview,/^data:image\/svg\+xml;charset=utf-8,/);
       const svg=decodeURIComponent(preview.split(',').slice(1).join(','));
-      assert.match(svg,/<image[^>]+href="data:image\/webp;base64,/);
+      assert.match(svg,/<image[^>]+href="data:image\/jpeg;base64,/);
       assert.ok(!/href="(?:https?:|file:|app:)/.test(svg));
     }
     const app={vault:{adapter:{exists:async()=>true,mkdir:async()=>{},getBasePath(){throw new Error('Unexpected installed module lookup');}},on:()=>({})},workspace:{on:()=>({})}};
@@ -249,7 +250,7 @@ test('standard three-file release loads without sibling modules, assets, network
 });
 test('both bundled preview images remain available without an installed asset directory',()=>{
   const preview=hooks.BDView.prototype.templatePreview;
-  assert.match(preview.call({}, {previewAsset:'dan-koe'}),/^data:image\/png;base64,/);
+  assert.match(preview.call({}, {previewAsset:'dan-koe'}),/^data:image\/jpeg;base64,/);
   assert.match(preview.call({}, {previewAsset:'neon-card'}),/^data:image\/svg\+xml;base64,/);
 });
 test('body template library shows available style samples instead of generic layout placeholders',()=>{
@@ -524,9 +525,9 @@ test('generated style previews map thirty unique bounded cells to five offline s
   const assigned=new Set();
   for(const [key,sheet] of Object.entries(pack.sheets)){
     assert.equal(sheet.frames.length,6);
-    assert.match(sheet.image,/^data:image\/webp;base64,/);
+    assert.match(sheet.image,/^data:image\/jpeg;base64,/);
     const bytes=Buffer.from(sheet.image.split(',')[1],'base64');
-    assert.equal(bytes.toString('ascii',0,4),'RIFF');assert.equal(bytes.toString('ascii',8,12),'WEBP');
+    assert.equal(bytes[0],0xff);assert.equal(bytes[1],0xd8);
     let area=0;
     for(const [x,y,w,h] of sheet.frames){assert.ok(x>=0&&y>=0&&w>0&&h>0&&x+w<=sheet.width&&y+h<=sheet.height);area+=w*h;}
     assert.equal(area,sheet.width*sheet.height);

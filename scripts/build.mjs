@@ -8,7 +8,7 @@ await build({
   platform: 'node', format: 'cjs', target: 'es2022',
   // ssh2 的可选原生加速模块（cpu-features、sshcrypto.node）不打进包；缺失时 ssh2 自动回退纯 JS 实现。
   external: ['obsidian', 'electron', 'cpu-features', '*.node'],
-  loader: { '.png': 'dataurl', '.svg': 'dataurl', '.webp': 'dataurl' }, minify: false,
+  loader: { '.png': 'dataurl', '.jpg': 'dataurl', '.svg': 'dataurl', '.webp': 'dataurl' }, minify: false,
   banner: { js: '/*\n' + notices.replaceAll('*/', '* /') + '\n*/' },
   logLevel: 'info',
 });
