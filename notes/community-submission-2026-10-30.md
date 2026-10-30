@@ -1,4 +1,4 @@
-# Banana Studio Community 提交准备
+# Banana Studio Community 提交记录
 
 - 日期：2026-10-30（Asia/Shanghai）。
 - 来源：用户明确要求「你把这个发布到 obsidian 官方仓库里去」。
@@ -14,4 +14,16 @@
 
 ## 发布者确认
 
-2026-10-30 实际提交表单要求同意 Developer Policies，并承诺持续维护，无法维护时移除或转移插件。提交前需取得这两项发布者承诺的明确确认。准备发行版不等于已提交或已上架。
+2026-10-30 实际提交表单要求同意 Developer Policies，并承诺持续维护，无法维护时移除或转移插件。用户已在本会话明确回复「同意，勾选并提交」。已据此勾选两项并提交；官方已创建管理页并完成 Publish；最终审核状态为 Completed，公开页面已开放 Add to Obsidian 安装入口。
+
+管理页：https://community.obsidian.md/account/plugins/banana-studio
+
+GitHub 正式发行：https://github.com/TreyDong/banana-studio/releases/tag/0.12.2
+
+发行验证：GitHub Actions 40990641359 成功，三个发行附件与本机构建逐字节一致，main.js 构建来源证明验证成功。自动化测试 131 项通过、0 项失败、1 项可选 Chrome 集成测试跳过。
+
+公开页面：https://community.obsidian.md/plugins/banana-studio
+
+最终审核结果：版本 0.12.2、源提交 419c2c0，状态 Completed。main.js 与 styles.css 的 GitHub artifact attestation、依赖安全检查、代码混淆检查、逐字节构建复现均为 Pass，无阻断 Error。11 MB 安装包与桌面能力（文件系统、子进程等）保留 Warning；README 已说明对应使用范围及 Sync Standard 限制。
+
+公开安装验收：刷新官方公开页面后，Add to Obsidian 已由禁用按钮变为可用链接，目标为 obsidian://show-plugin?id=banana-studio。未点击该链接，未改动用户现有笔记库或安装。
