@@ -100,6 +100,10 @@ function numberingReserve(style) {
   return SUFFIX_RESERVE;
 }
 
+/* 浏览器发帖快捷方式：X Web Intents 链接，打开后内容已注入发帖框，点「发布」即可。
+ * 只支持注入单条文本（不支持线程串联），多条需逐条打开或配合剪贴板粘贴。 */
+function intentUrl(text) { return 'https://x.com/intent/tweet?text=' + encodeURIComponent(String(text || '')); }
+
 /* 主入口：文章纯文本 → 推文串（已编号）。两遍切分保证后缀编号也不会超限。 */
 function threadFromArticle(markdown, { numbering = 'suffix', limit = LIMIT } = {}) {
   const plain = toPlainText(markdown);
@@ -142,4 +146,4 @@ function parseAITweets(raw, limit = LIMIT) {
   return parts;
 }
 
-module.exports = { weightedLength, toPlainText, splitText, hardSplit, applyNumbering, numberingReserve, threadFromArticle, parseAITweets, segments, maxFit, LIMIT, LONG_LIMIT };
+module.exports = { weightedLength, toPlainText, splitText, hardSplit, applyNumbering, numberingReserve, intentUrl, threadFromArticle, parseAITweets, segments, maxFit, LIMIT, LONG_LIMIT };

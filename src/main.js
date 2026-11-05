@@ -2565,6 +2565,29 @@ class BDView extends ItemView {
     await navigator.clipboard.writeText(text);
     new Notice(t('已复制 {n} 条推文', { n: this.xTweets.length }), 5000);
   }
+  /* 浏览器发帖：打开 X Web Intents 链接，内容已注入发帖框，用户（或 agent）在浏览器里点击发布即可。 */
+  xDrafts() { return this.xTweets.filter(item => !item.postedId); }
+  async xBrowserPost() {
+    const drafts = this.xDrafts();
+    if (!drafts.length) { new Notice(t('没有待发布的推文')); return; }
+    const first = this.xTweets.indexOf(drafts[0]) + 1;
+    window.open(this.plugin.xThread.intentUrl(drafts[0].text), '_blank');
+    if (drafts.length > 1) {
+      // Intents 只能注入单条；其余条目复制到剪贴板，在浏览器帖子串里继续粘贴
+      const rest = drafts.slice(1).map(item => item.text).join('\n\n' + '———'.repeat(3) + '\n\n');
+      await navigator.clipboard.writeText(rest);
+      new Notice(t('已在浏览器打开第 {i} 条，后续 {n} 条已复制，可在帖子串里粘贴继续', { i: first, n: drafts.length - 1 }), 8000);
+    } else {
+      new Notice(t('已在浏览器打开发布页，点击发帖即可'), 6000);
+    }
+  }
+  async xCopyIntentLinks() {
+    const drafts = this.xDrafts();
+    if (!drafts.length) { new Notice(t('没有待发布的推文')); return; }
+    const links = drafts.map((item, index) => (drafts.length > 1 ? (index + 1) + '. ' : '') + this.plugin.xThread.intentUrl(item.text)).join('\n');
+    await navigator.clipboard.writeText(links);
+    new Notice(t('已复制 {n} 条发布链接', { n: drafts.length }), 5000);
+  }
   async publishX() {
     if (this.busy) return;
     if (!this.xTweets.length) { new Notice(t('请先生成或编辑推文串')); return; }
@@ -2639,6 +2662,8 @@ class BDView extends ItemView {
         }).open(), 'bd-btn', 'image');
         addImage.setAttribute('aria-label', t('添加图片'));
         if (!tweet.postedId) {
+          const open = this.button(actions, '', () => window.open(this.plugin.xThread.intentUrl(tweet.text), '_blank'), 'bd-btn', 'external-link');
+          open.setAttribute('aria-label', t('浏览器打开本条')); open.title = t('浏览器打开本条');
           const remove = this.button(actions, '', () => { this.xTweets.splice(index, 1); this.remember(); this.renderBody(); }, 'bd-btn', 'trash-2');
           remove.setAttribute('aria-label', t('删除本条'));
         } else {
@@ -2681,6 +2706,8 @@ class BDView extends ItemView {
     const actionSec = panel.createDiv('bd-panel-footer bd-publish-footer');
     const actionRow = actionSec.createDiv('bd-wechat-actions');
     this.button(actionRow, t('复制全部'), () => this.copyXTweets().catch(e => new Notice(e.message, 7000)), 'bd-btn', 'clipboard-copy').disabled = this.busy;
+    this.button(actionRow, t('浏览器发帖'), () => this.xBrowserPost().catch(e => new Notice(e.message, 7000)), 'bd-btn', 'external-link').disabled = this.busy;
+    this.button(actionRow, t('复制发布链接'), () => this.xCopyIntentLinks().catch(e => new Notice(e.message, 7000)), 'bd-btn', 'link').disabled = this.busy;
     this.button(actionRow, t('发布到 X'), () => this.publishX().catch(e => new Notice(e.message, 7000)), 'bd-btn bd-primary', 'send').disabled = this.busy;
     if (!String(cfg.consumerKey || '').trim()) actionSec.createDiv({ cls: 'bd-wechat-hint', text: t('尚未配置 X 密钥：请到「设置 → Banana Studio → X」完成配置；未配置也可以复制后手动发。') });
     if (this.operation?.kind === 'x') {
