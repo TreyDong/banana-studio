@@ -74,6 +74,16 @@ test('thread：AI 产物解析（JSON 数组、编号文本、超限兜底切分
   for (const part of parts) assert.ok(th.weightedLength(part) <= 280);
 });
 
+test('thread：intentUrl 拼串可注入发帖内容', () => {
+  assert.equal(th.intentUrl(''), 'https://x.com/intent/tweet?text=');
+  assert.equal(th.intentUrl('hello world'), 'https://x.com/intent/tweet?text=hello%20world');
+  assert.equal(th.intentUrl('看 & 转'), 'https://x.com/intent/tweet?text=' + encodeURIComponent('看 & 转'));
+  const url = th.intentUrl('第一行\n第二行 #tag & more+字');
+  assert.ok(url.startsWith('https://x.com/intent/tweet?text='));
+  assert.ok(!url.includes('\n') && !url.includes(' '));
+  assert.deepEqual(decodeURIComponent(new URL(url).searchParams.get('text')), '第一行\n第二行 #tag & more+字');
+});
+
 /* ================= XClient 链路（stub 传输） ================= */
 
 function json(obj, headers = {}) { return { status: 200, headers, buf: Buffer.from(JSON.stringify(obj)) }; }
