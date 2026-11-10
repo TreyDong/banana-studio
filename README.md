@@ -61,7 +61,7 @@ npm run check
 
 Banana Studio starts from Banana Design 0.12.1; its first independent release is `0.12.2`. Release tags must match the manifest version (no `v` prefix). Pushing a stable version tag runs the release workflow, which checks version metadata, builds and tests the plugin, then publishes those three files as individual GitHub Release assets.
 
-Project decisions are recorded in [notes/](notes/). The initial project boundary and source are recorded in [the initialization note](notes/banana-studio-initialization-2026-10-30.md).
+Project decisions are tracked in the [issue tracker](https://github.com/TreyDong/banana-studio/issues) and in the release notes.
 
 ## License
 

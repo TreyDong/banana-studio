@@ -11,3 +11,7 @@ gateway.env
 generation.json
 agent.json
 .DS_Store
+
+# 私人记录，不上传
+notes/
+DESIGN.md

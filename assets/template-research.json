@@ -1,0 +1,332 @@
+{
+  "schemaVersion": 1,
+  "goal": "30 default selectable cover templates, excluding body-only diagrams",
+  "counts": {
+    "beforeCovers": 16,
+    "addedCovers": 14,
+    "afterCovers": 30,
+    "afterIllustrationStyles": 38
+  },
+  "selectionPolicy": [
+    "A different subject, composition or material method is required; palette variants alone do not count.",
+    "Adapt headline hierarchy to Chinese; preserve user wording, text switch and output ratio.",
+    "SVG previews are original typography/composition examples, not photorealism or image-model acceptance evidence.",
+    "Stars describe a repository at the time of the snapshot; they do not rank individual templates or prove click-through performance."
+  ],
+  "sources": [
+    {
+      "id": "freestylefly",
+      "kind": "github",
+      "url": "https://github.com/freestylefly/awesome-gpt-image-2",
+      "stars": 34747,
+      "commit": "63e6176fa01be51c000108dacd72716d3e46784b",
+      "license": "MIT",
+      "inspected": "Poster layout system; sports campaign; ink double exposure; nature-science composition",
+      "use": "Design-method research only. No repository code, verbatim case prompt, font or community image copied."
+    },
+    {
+      "id": "picotrex",
+      "kind": "github",
+      "url": "https://github.com/PicoTrex/Awesome-Nano-Banana-images",
+      "stars": 23914,
+      "commit": "2558bf0bb825be150c5d1aeab918cd90004882d3",
+      "license": "Apache-2.0",
+      "inspected": "Fashion moodboard collage, case 52 by tetumemo; station movie-poster, case 91 by AI_Kei75",
+      "use": "Design-method research only. No repository code, verbatim case prompt, font or community image copied."
+    },
+    {
+      "id": "zerolu",
+      "kind": "github",
+      "url": "https://github.com/ZeroLu/awesome-nanobanana-pro",
+      "stars": 10357,
+      "commit": "2ae6e1b8aaed2780fa39915ba868cfeef11cabc1",
+      "license": "MIT",
+      "inspected": "1.16 Magazine Cover Portrait; 2.17 photo-book cover; 2.19 narrative diorama; 5.3 magazine layout; 8.1 video thumbnail; 10.3 Y2K scrapbook",
+      "use": "Design-method research only. No repository code, verbatim case prompt, font or community image copied."
+    },
+    {
+      "id": "youmind",
+      "kind": "github",
+      "url": "https://github.com/YouMind-OpenLab/awesome-nano-banana-pro-prompts",
+      "stars": 13637,
+      "commit": "c12fddf2c8a8416191a6a9c067a0d3f41d2ba3b6",
+      "license": "CC-BY-4.0",
+      "inspected": "No.35 travel editorial collage by lovimg_com; No.54 typographic poster by Gadgetify; No.68 ink zine poster by Zayan",
+      "use": "Design-method research only. No repository code, verbatim case prompt, font or community image copied."
+    },
+    {
+      "id": "guizang",
+      "kind": "github",
+      "url": "https://github.com/op7418/guizang-ppt-skill",
+      "stars": 28264,
+      "commit": "c91369c449d34755d320a8b81d0734000d99d1ab",
+      "license": "AGPL-3.0",
+      "inspected": "Editorial magazine and Swiss cover hierarchy; platform-dependent aspect ratios",
+      "use": "Design-method research only. No repository code, verbatim case prompt, font or community image copied."
+    },
+    {
+      "id": "vue-fabric",
+      "kind": "github",
+      "url": "https://github.com/ikuaitu/vue-fabric-editor",
+      "stars": 7999,
+      "commit": "b3bdcfb0bd6d8f98e7483cf561ac03ba56c0d889",
+      "license": "MIT",
+      "inspected": "Inspected editor/template workflow; excluded as a source of redistributable cover artwork",
+      "use": "Design-method research only. No repository code, verbatim case prompt, font or community image copied."
+    },
+    {
+      "id": "yft-design",
+      "kind": "github",
+      "url": "https://github.com/dromara/yft-design",
+      "stars": 1664,
+      "commit": "f1328edcd07373267bc372bab19be466c7482fc3",
+      "license": "MIT",
+      "inspected": "Inspected canvas-editor scope; excluded as a source of redistributable cover artwork",
+      "use": "Design-method research only. No repository code, verbatim case prompt, font or community image copied."
+    },
+    {
+      "id": "canva-blog",
+      "kind": "design-website",
+      "url": "https://www.canva.com/blog-graphics/templates/",
+      "license": "Proprietary site/template terms; not a grant to redistribute template assets",
+      "inspected": "Photocentric travel, business portrait and typographic blog compositions",
+      "verification": "Live gallery and screenshots inspected",
+      "use": "Visual-method reference only; no downloaded template, stock image, branded artwork or font bundled."
+    },
+    {
+      "id": "kittl-posters",
+      "kind": "design-website",
+      "url": "https://www.kittl.com/templates/posters",
+      "license": "Proprietary site/template terms; not a grant to redistribute template assets",
+      "inspected": "Brutalist, Bauhaus and art-show categories; type-dominant poster compositions",
+      "verification": "Live gallery and screenshots inspected; specific category pages read",
+      "use": "Visual-method reference only; no downloaded template, stock image, branded artwork or font bundled."
+    },
+    {
+      "id": "fotor-banner",
+      "kind": "design-website",
+      "url": "https://www.fotor.com/blog-banner/templates/",
+      "license": "Proprietary site/template terms; not a grant to redistribute template assets",
+      "inspected": "Black-and-white film montage and blog title/photo hierarchy",
+      "verification": "First gallery row inspected; later lazy-loaded images unavailable",
+      "use": "Visual-method reference only; no downloaded template, stock image, branded artwork or font bundled."
+    },
+    {
+      "id": "adobe-banner",
+      "kind": "design-website",
+      "url": "https://www.adobe.com/express/templates/banner",
+      "license": "Proprietary site/template terms; not a grant to redistribute template assets",
+      "inspected": "Flexible banner layout, headline and quiet-background hierarchy",
+      "verification": "Official page read; not a pixel-level template recreation",
+      "use": "Visual-method reference only; no downloaded template, stock image, branded artwork or font bundled."
+    },
+    {
+      "id": "playground-vintage",
+      "kind": "design-website",
+      "url": "https://playgroundai.com/templates/s/vintage-poster",
+      "license": "Proprietary site/template terms; not a grant to redistribute template assets",
+      "inspected": "Retro typography and landscape poster families",
+      "verification": "Live gallery and screenshots inspected",
+      "use": "Visual-method reference only; no downloaded template, stock image, branded artwork or font bundled."
+    },
+    {
+      "id": "gaoding",
+      "kind": "design-website",
+      "url": "https://www.gaoding.com/templates/weixingongzhonghaogundonghengtu",
+      "license": "Proprietary site/template terms; not a grant to redistribute template assets",
+      "inspected": "WeChat lead-image and dual-cover categories",
+      "verification": "Search-index text only; live page unavailable; no recipe attributed to unseen artwork",
+      "use": "Visual-method reference only; no downloaded template, stock image, branded artwork or font bundled."
+    },
+    {
+      "id": "chuangkit",
+      "kind": "design-website",
+      "url": "https://www.chuangkit.com/index.html",
+      "license": "Proprietary site/template terms; not a grant to redistribute template assets",
+      "inspected": "Official public WeChat cover-template scope",
+      "verification": "Search-index overview only; no recipe attributed to unseen artwork",
+      "use": "Visual-method reference only; no downloaded template, stock image, branded artwork or font bundled."
+    }
+  ],
+  "directions": [
+    {
+      "id": "cover-photo-split",
+      "name": "照片分栏 · 专题报道",
+      "description": "文字与主图分区，适合人物报道、商业观察和生活专题",
+      "sourceUrl": "https://www.canva.com/blog-graphics/templates/",
+      "sourceLabel": "Canva · 版式参考",
+      "sampleTitle": "普通人的一天",
+      "researchSourceIds": [
+        "canva-blog",
+        "fotor-banner"
+      ],
+      "selection_reason": "Explicit text/image zoning; different from full-scene lifestyle photography."
+    },
+    {
+      "id": "cover-portrait-cutout",
+      "name": "人物切片 · 对谈封面",
+      "description": "主体越过色块边界，适合访谈、创作者故事与人物观点",
+      "sourceUrl": "https://github.com/ZeroLu/awesome-nanobanana-pro/blob/2ae6e1b8aaed2780fa39915ba868cfeef11cabc1/README.md#116-magazine-cover-portrait",
+      "sourceLabel": "Nano Banana Pro · 案例参考",
+      "sampleTitle": "找到自己的声音",
+      "researchSourceIds": [
+        "zerolu",
+        "canva-blog"
+      ],
+      "selection_reason": "Subject crosses a color boundary; different from the painted human-narrative style."
+    },
+    {
+      "id": "cover-monochrome-frame",
+      "name": "黑白影像 · 城市留白",
+      "description": "黑白环境与克制标题，适合城市、建筑与独处主题",
+      "sourceUrl": "https://www.fotor.com/blog-banner/templates/",
+      "sourceLabel": "Fotor · 封面参考",
+      "sampleTitle": "城市很大，也需要自己的角落",
+      "researchSourceIds": [
+        "fotor-banner",
+        "canva-blog"
+      ],
+      "selection_reason": "Photographic black-and-white environmental framing; different from engraving linework."
+    },
+    {
+      "id": "cover-contact-sheet",
+      "name": "胶片拼版 · 旅行手记",
+      "description": "两到三幅关联场景形成节奏，适合旅行、观察与回顾",
+      "sourceUrl": "https://github.com/YouMind-OpenLab/awesome-nano-banana-pro-prompts/blob/c12fddf2c8a8416191a6a9c067a0d3f41d2ba3b6/README.md#no-35-infographic--edu-visual---vintage-travel-journal-editorial-collage",
+      "sourceLabel": "YouMind · 分类研究",
+      "sampleTitle": "带着好奇心，去一座陌生的城市",
+      "researchSourceIds": [
+        "youmind",
+        "fotor-banner"
+      ],
+      "selection_reason": "A related scene sequence; different from an argument made with cutout fragments."
+    },
+    {
+      "id": "cover-scrapbook",
+      "name": "撕纸日记 · 生活拼贴",
+      "description": "纸边、照片与少量笔触，适合生活记录和个人成长",
+      "sourceUrl": "https://github.com/PicoTrex/Awesome-Nano-Banana-images/blob/2558bf0bb825be150c5d1aeab918cd90004882d3/README.md",
+      "sourceLabel": "Nano Banana · 视觉研究",
+      "sampleTitle": "把零碎日常，拼成自己的生活",
+      "researchSourceIds": [
+        "picotrex",
+        "youmind"
+      ],
+      "selection_reason": "Personal paper-layer record; different from the archive-card style and polemical collage."
+    },
+    {
+      "id": "cover-bauhaus",
+      "name": "包豪斯 · 形状与秩序",
+      "description": "几何形体有节奏地呼应标题，适合设计、创意和方法主题",
+      "sourceUrl": "https://www.kittl.com/templates/posters/bauhaus",
+      "sourceLabel": "Kittl · 海报参考",
+      "sampleTitle": "让灵感，有地方发生",
+      "researchSourceIds": [
+        "kittl-posters"
+      ],
+      "selection_reason": "Meaningful geometric balance; different from a purely alignment-driven Swiss layout."
+    },
+    {
+      "id": "cover-brutalist",
+      "name": "粗野排版 · 街头观点",
+      "description": "巨大文字和粗粝印刷感，适合鲜明立场与行动宣言",
+      "sourceUrl": "https://www.kittl.com/templates/posters/brutalist",
+      "sourceLabel": "Kittl · 海报参考",
+      "sampleTitle": "别等完美，先开始",
+      "researchSourceIds": [
+        "kittl-posters",
+        "youmind"
+      ],
+      "selection_reason": "Deliberately raw monumental typography; different from the warm flat magazine headline."
+    },
+    {
+      "id": "cover-retro-travel",
+      "name": "复古旅行 · 风景明信片",
+      "description": "分层风景与暖色印刷，适合旅行、地方记录和周末生活",
+      "sourceUrl": "https://playgroundai.com/templates/s/vintage-poster",
+      "sourceLabel": "Playground · 海报参考",
+      "sampleTitle": "沿着山路，找回周末",
+      "researchSourceIds": [
+        "playground-vintage",
+        "zerolu"
+      ],
+      "selection_reason": "Layered lithographic landscape; different from cinematic photorealism and literary painting."
+    },
+    {
+      "id": "cover-cyanotype",
+      "name": "蓝晒印相 · 自然观察",
+      "description": "植物或物件的光影轮廓，适合自然、科学观察和慢生活",
+      "sourceUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/63e6176fa01be51c000108dacd72716d3e46784b/agents/skills/gpt-image-2-style-library/references/style-library.md#nature-science-poster--自然科普海报",
+      "sourceLabel": "GPT Image · 风格研究",
+      "sampleTitle": "观察一片叶子，重新认识自然",
+      "researchSourceIds": [
+        "freestylefly",
+        "kittl-posters"
+      ],
+      "selection_reason": "Original contact-print material direction extending subject/whitespace research; not a copied science-poster case."
+    },
+    {
+      "id": "cover-ink-double",
+      "name": "水墨叠影 · 人文意象",
+      "description": "主体轮廓与山水空间相融，适合人文、阅读和文化随笔",
+      "sourceUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/63e6176fa01be51c000108dacd72716d3e46784b/agents/skills/gpt-image-2-style-library/references/style-library.md#ink-double-exposure-poster--水墨双重曝光海报",
+      "sourceLabel": "GPT Image · 风格研究",
+      "sampleTitle": "山水之间，看见另一种生活",
+      "researchSourceIds": [
+        "freestylefly"
+      ],
+      "selection_reason": "Silhouette and environment merge; different from the body-only traditional ink landscape recipe."
+    },
+    {
+      "id": "cover-miniature-story",
+      "name": "微缩场景 · 故事切片",
+      "description": "一个立体空间承载故事，适合书评、场所与创作主题",
+      "sourceUrl": "https://github.com/ZeroLu/awesome-nanobanana-pro/blob/2ae6e1b8aaed2780fa39915ba868cfeef11cabc1/README.md#219-novel-scene-3d-poster",
+      "sourceLabel": "Nano Banana Pro · 案例参考",
+      "sampleTitle": "小小书店，装得下一个世界",
+      "researchSourceIds": [
+        "zerolu"
+      ],
+      "selection_reason": "One narrative diorama; different from process/exploded scientific diagrams."
+    },
+    {
+      "id": "cover-soft-gradient",
+      "name": "雾面渐变 · 科技专题",
+      "description": "柔和光场与清晰大字，适合 AI、数字产品和未来讨论",
+      "sourceUrl": "https://www.adobe.com/express/templates/banner",
+      "sourceLabel": "Adobe Express · 版式参考",
+      "sampleTitle": "工具在变，创造力走向哪里",
+      "researchSourceIds": [
+        "adobe-banner",
+        "canva-blog"
+      ],
+      "selection_reason": "Matte light field around a typographic headline; different from the neon local-card layout."
+    },
+    {
+      "id": "cover-motion",
+      "name": "动势瞬间 · 行动主题",
+      "description": "斜向力量和人物动作，适合行动、习惯、运动与挑战",
+      "sourceUrl": "https://github.com/freestylefly/awesome-gpt-image-2/blob/63e6176fa01be51c000108dacd72716d3e46784b/agents/skills/gpt-image-2-style-library/references/style-library.md#sports-campaign-poster--运动商业-campaign",
+      "sourceLabel": "GPT Image · 风格研究",
+      "sampleTitle": "迈出第一步，比准备更重要",
+      "researchSourceIds": [
+        "freestylefly",
+        "canva-blog"
+      ],
+      "selection_reason": "Physical gesture and directional force; different from a static character scene."
+    },
+    {
+      "id": "cover-exhibition",
+      "name": "展览图录 · 艺术阅读",
+      "description": "作品、留白与严谨字距，适合艺术、审美和文化评论",
+      "sourceUrl": "https://www.kittl.com/templates/posters/art-show",
+      "sourceLabel": "Kittl · 海报参考",
+      "sampleTitle": "换个角度，重新看一件作品",
+      "researchSourceIds": [
+        "kittl-posters",
+        "guizang"
+      ],
+      "selection_reason": "Original object viewed as an artwork with catalog spacing; different from commercial still-life photography."
+    }
+  ]
+}
