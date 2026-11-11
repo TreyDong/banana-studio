@@ -9,7 +9,7 @@ const content='# 生活，值得重新想象\n\n在繁忙的日常里，给阅�
 function fixture(){
   const file={path:'Fixture.md',basename:'Fixture',extension:'md'};
   const app={vault:{getAbstractFileByPath:p=>p===file.path||p.startsWith('assets/')?{...file,path:p}:null,cachedRead:async()=>content,process:async(f,fn)=>fn(content)},metadataCache:{getFileCache:()=>({})}};
-  const plugin={settings:{sessions:{},promptTemplates:[],hiddenPromptTemplates:[]},layout:require('../src/rendering/cover-layout'),figureAgent:require('../src/illustrations/figure-agent'),wechatThemes:require('../src/templates/wechat-themes'),activeConnection:()=>({id:'fixture-model',model:'fixture'}),saveSettings:async()=>{}};
+  const plugin={articleAllowed:file=>file?.extension==='md',settings:{sessions:{},promptTemplates:[],hiddenPromptTemplates:[]},layout:require('../src/rendering/cover-layout'),figureAgent:require('../src/illustrations/figure-agent'),wechatThemes:require('../src/templates/wechat-themes'),activeConnection:()=>({id:'fixture-model',model:'fixture'}),saveSettings:async()=>{}};
   const view=new BDView({app},plugin);view.articlePath=file.path;view.title='生活，值得重新想象';view.render=()=>{};view.renderBody=()=>{};view.remember=()=>{};
   const calls=[];plugin.text=async(connection,system,request,signal)=>{
     calls.push({connection,system,request,signal});

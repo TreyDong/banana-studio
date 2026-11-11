@@ -24,16 +24,22 @@ For manual installation, download `main.js`, `manifest.json`, and `styles.css` f
 
 Release 0.12.3 uses compact built-in previews so its main plugin file stays below the 5 MB Obsidian Sync Standard limit.
 
-Banana Studio uses its own plugin ID (`banana-studio`), settings, and default image folder (`Banana Studio`). Existing Banana Design settings, credentials, and history are not imported automatically. Use a separate test vault for initial checks.
+Banana Studio uses its own plugin ID (`banana-studio`), settings, and default image folder (`附件/Banana Studio`). Existing Banana Design settings, credentials, and history are not imported automatically. Use a separate test vault for initial checks.
 
 ## Getting started
 
 1. Enable the plugin and run **Open illustration workspace** (`banana-studio:open`), or use the ribbon icon.
-2. Open a Markdown note (or click the ribbon while a note is active). The workspace has two stages: **Create images** (Cover / Body illustrations) and **Preview & publish** (Original article / WeChat / X).
+2. Select a manuscript in `笔记` marked `media_stage: 写作` (also supports `待发布` / `已发布` or `media_kind: 稿件` / `文章`), or explicitly choose a Markdown source in `资料` / existing clippings. Diary, company, and investment sources are always excluded, even when an old session exists. The workspace has two stages: **Create images** (Cover / Body illustrations) and **Preview & publish** (Original article / WeChat / X).
 3. Choose a format and template, enter a request, and generate candidates. Reference images can be picked from disk or the vault.
 4. Export a PNG, insert a cover, or confirm a planned illustration batch. Restarting the workspace clears the current view; saved images and history remain.
 
 API credentials and publishing secrets use Obsidian SecretStorage. The plugin does not replace the Markdown editor or act as a general autonomous agent.
+
+## Workspace paths
+
+Desktop reads `~/.config/banana/workspace.json` for the matching vault. Manuscripts use `notesDir`, explicit reference selections use `materialsDir`, and generated images default to `attachmentsDir/Banana Studio`. Existing custom output folders are preserved. Only recognized old output defaults are replaced; there is no fallback to the former media or attachment directories. Material selections apply to the current view and are not silently restored from saved history. Private sessions remain stored locally but cannot enter the picker, generated-image history, or AI source selection.
+
+The companion `banana-reader/scripts/workspace-migration.mjs` exports `migrateStudioData` and `migratePublicationData` for applying an explicit old-to-new path map to session keys, image references, and separate publication records. These functions return copies, preserve unknown settings, and refuse key collisions. Stop the plugin before applying a reviewed result; do not let a running view overwrite migrated data.
 
 ## Models and connections
 

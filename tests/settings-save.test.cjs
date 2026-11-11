@@ -70,8 +70,9 @@ function makeEnv({ withSecretStorage = true, enabled = true } = {}) {
   const store = new Map();
   const secretStorage = withSecretStorage ? {
     getSecret: id => (store.has(id) ? store.get(id) : null),
-    setSecret: async (id, s) => { store.set(id, String(s)); },
-    deleteSecret: async id => { store.delete(id); },
+    // Obsidian 的 SecretStorage 是同步方法：setSecret 返回 void，deleteSecret 返回布尔值
+    setSecret: (id, s) => { store.set(id, String(s)); },
+    deleteSecret: id => { store.delete(id); return true; },
   } : undefined;
   let savedCount = 0;
   const settings = { wechat: { appId: 'wx123', secretId: '', author: '', defaultTheme: 'minimal', ssh: { ...main.__test.WECHAT_SSH_DEFAULTS, enabled, host: 'srv.example.com', username: 'root' } } };
@@ -88,6 +89,56 @@ function makeEnv({ withSecretStorage = true, enabled = true } = {}) {
 const findBtn = (root, text) => root.findAll(n => n.tag === 'button' && (n.textContent.includes(text) || n.findAll(c => c.textContent.includes(text)).length > 0))[0];
 const findField = (root, label) => root.findAll(n => (n.tag === 'input' || n.tag === 'textarea') && n.ariaLabel === label)[0];
 const PEM = '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkq\n-----END PRIVATE KEY-----\n';
+
+test('密钥串 ID 符合 Obsidian 限制：小写字母/数字/连字符，且不超过 64 字符', () => {
+  const env = makeEnv();
+  const labels = ['appsecret', 'ssh-password', 'ssh-key', 'ssh-passphrase', 'x-oauth2-secret', 'x-oauth2-access', 'x-oauth2-refresh', 'x-consumer-secret', 'x-token', 'x-token-secret', 'publish-relay'];
+  const ids = labels.map(label => env.plugin.wechatSecretId(label));
+  for (const id of ids) {
+    assert.match(id, /^[a-z0-9-]+$/, 'ID 只能包含小写字母、数字和连字符：' + id);
+    assert.ok(id.length <= 64, 'ID 不能超过 64 字符：' + id + '（' + id.length + '）');
+  }
+  assert.equal(new Set(ids.map(id => id.slice(0, id.length - 37))).size, labels.length, '不同用途的 ID 前缀应能区分');
+});
+
+test('保存 AppSecret：Obsidian 的 deleteSecret 同步返回布尔值，保存过程不抛 TypeError', async () => {
+  const env = makeEnv();
+  env.tab.display();
+  const secretInput = findField(env.root, 'AppSecret');
+  assert.ok(secretInput, 'AppSecret 输入框应存在');
+  secretInput.value = 'secret-value';
+  const btn = findBtn(env.root, '保存密钥');
+  assert.ok(btn, '保存密钥按钮应存在');
+  await btn.onclick();
+  assert.equal(NOTICES.filter(n => n.includes('已保存到系统密钥串')).length, 1);
+  assert.ok(env.plugin.settings.wechat.secretId, 'secretId 应已写入设置');
+  assert.equal(env.store.get(env.plugin.settings.wechat.secretId), 'secret-value', '密钥串里应保存 AppSecret');
+});
+
+test('更换 AppSecret：已有密钥时删除旧值不抛 TypeError', async () => {
+  const env = makeEnv();
+  env.tab.display();
+  findField(env.root, 'AppSecret').value = 'first-secret';
+  await findBtn(env.root, '保存密钥').onclick();
+  env.tab.display();
+  findField(env.root, 'AppSecret').value = 'second-secret';
+  await findBtn(env.root, '更换密钥').onclick();
+  assert.equal(env.store.get(env.plugin.settings.wechat.secretId), 'second-secret', '应写入新值');
+  assert.equal(env.store.size, 1, '旧密钥应已从密钥串移除');
+});
+
+test('清除 AppSecret：删除密钥串条目不抛 TypeError', async () => {
+  const env = makeEnv();
+  env.tab.display();
+  findField(env.root, 'AppSecret').value = 'first-secret';
+  await findBtn(env.root, '保存密钥').onclick();
+  env.tab.display();
+  const clear = findBtn(env.root, '清除密钥');
+  assert.ok(clear, '清除密钥按钮应存在');
+  await clear.onclick();
+  assert.equal(env.plugin.settings.wechat.secretId, '', 'secretId 应已清空');
+  assert.equal(env.store.size, 0, '密钥串里不应残留');
+});
 
 test('保存私钥：粘贴 PEM 后写入 SecretStorage 并落盘 keySecretId', async () => {
   const env = makeEnv();

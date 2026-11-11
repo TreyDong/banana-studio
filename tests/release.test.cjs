@@ -39,7 +39,7 @@ function load(filename, expose=false) {
     return local(id);
   };
   let source=fs.readFileSync(filename,'utf8');
-  if(expose) source+='\nmodule.exports.testHooks = {readGeneratedImage,BDView,TemplateLibraryModal,TemplateManagerModal,PromptTemplateEditor,updateTemplateSettings,imageFolder,outputRules,createOutputTask,outputImageName,promptTemplates,templateChoices,figureRecipe,renderFigureRecipe,renderTemplatePrompt,templateLabel,PLATFORMS,FIGURE_SIZES,PALETTES,RENDERINGS,MODULES};';
+  if(expose) source+='\nmodule.exports.testHooks = {readGeneratedImage,BDView,TemplateLibraryModal,CoverConfigModal,TemplateManagerModal,PromptTemplateEditor,updateTemplateSettings,imageFolder,outputRules,createOutputTask,outputImageName,promptTemplates,templateChoices,figureRecipe,renderFigureRecipe,renderTemplatePrompt,templateLabel,PLATFORMS,FIGURE_SIZES,PALETTES,RENDERINGS,MODULES};';
   vm.runInNewContext(source,{module:mod,exports:mod.exports,require:safeRequire,Buffer,URL,Blob,process,console,setTimeout,clearTimeout,AbortController,requestAnimationFrame(){},document:{getElementById:()=>null}},{filename});
   return mod.exports;
 }
@@ -52,7 +52,10 @@ function flowNode(options={}) {
 }
 function flowText(node){return [node.text,...node.children.map(flowText)].join(' ');}
 function flowView(overrides={}) {
-  return Object.assign(Object.create(hooks.BDView.prototype),{plugin:{settings:{}},figures:[],refs:[],figureRequirements:'',activeFile:()=>({path:'Flow.md'}),remember(){},renderStopButton:()=>null,navigateTab(key){this.destination=key;},...overrides});
+  const view=Object.assign(Object.create(hooks.BDView.prototype),{plugin:{settings:{}},figures:[],refs:[],figureRequirements:'',activeFile:()=>({path:'Flow.md'}),remember(){},renderStopButton:()=>null,navigateTab(key){this.destination=key;},...overrides});
+  // These fixtures exercise UI flows; workspace.test.cjs covers the real admission policy.
+  view.plugin.articleAllowed ||= file=>file?.extension==='md';
+  return view;
 }
 test('chosen planning and image services and model names are visible without hovering',()=>{
   i18n.configureLocale(()=>'zh'); const parent=flowNode();
@@ -61,13 +64,31 @@ test('chosen planning and image services and model names are visible without hov
   assert.match(flowText(parent),/Planning Service · planner-v2/);assert.match(flowText(parent),/Local Gemini · gemini-image/);
   assert.equal(picker.attrs['aria-haspopup'],'menu');view.busy=true;assert.equal(view.renderModelPicker(flowNode()).disabled,true);
 });
-test('the complete cover composer renders the selected models and locks them with its controls',()=>{
-  const view=flowView({coverChat:[],coverChatDraft:'',coverCount:1,coverBatch:[],plugin:{settings:{},activeConnection:()=>({name:'Selected service',model:'chosen-model'})},templatePickerLabel:()=> 'Style',canGenerateCover:()=>true});
+test('the cover composer stays a clean chat and locks the task settings entry',()=>{
+  i18n.configureLocale(()=>'zh');
+  const view=flowView({coverChat:[],coverChatDraft:'',coverCount:2,coverBatch:[],plugin:{settings:{},activeConnection:()=>({name:'Selected service',model:'chosen-model'})},templatePickerLabel:()=> 'Style',canGenerateCover:()=>true});
   const panel=flowNode(),fields=flowNode();view.renderCoverConversation(panel,fields);
-  assert.match(flowText(panel),/Selected service · chosen-model/);assert.match(flowText(panel),/生成/);
-  view.busy=true;const locked=flowNode();view.renderCoverConversation(locked,flowNode());
+  assert.match(flowText(panel),/任务配置/);assert.match(flowText(panel),/新封面/);assert.match(flowText(fields),/任务配置」里调整/);
+  assert.ok(!/Style/.test(flowText(panel)),'template settings move into the modal instead of crowding the composer');
   function all(n){return [n,...n.children.flatMap(all)];}
-  const picker=all(locked).find(n=>n.attrs['aria-haspopup']==='menu'&&/Selected service/.test(n.attrs['aria-label']||''));assert.equal(picker.disabled,true);
+  const config=all(panel).find(n=>/任务配置/.test(n.attrs['aria-label']||''));
+  assert.match(config.attrs['aria-label'],/Selected service · chosen-model/);assert.match(config.attrs['aria-label'],/Style/);assert.match(config.attrs['aria-label'],/2 张/);
+  const send=all(panel).find(n=>n.attrs['aria-label']==='生成封面');assert.ok(send,'send stays an icon-only button');assert.equal(flowText(send).trim(),'');
+  view.busy=true;const locked=flowNode();view.renderCoverConversation(locked,flowNode());
+  const lockedConfig=all(locked).find(n=>/任务配置/.test(n.attrs['aria-label']||''));assert.equal(lockedConfig.disabled,true);
+  const lockedSend=all(locked).find(n=>n.attrs['aria-label']==='生成封面');assert.equal(lockedSend.disabled,true);
+});
+test('task setup modal groups template, canvas text, models and count',()=>{
+  i18n.configureLocale(()=>'zh');
+  const view=flowView({coverCount:3,plugin:{settings:{},activeConnection:()=>({name:'Selected service',model:'chosen-model'})},templatePickerLabel:()=> 'Style',coverTextAvailable:()=>true,renderCoverTextInput(parent){parent.createDiv({cls:'stub-canvas-text',text:'Headline'});}});
+  const modal=new hooks.CoverConfigModal(view);
+  modal.titleEl={setText(){}}; modal.modalEl=flowNode(); modal.contentEl=flowNode(); modal.close=()=>{};
+  modal.onOpen();
+  const text=flowText(modal.contentEl);
+  assert.match(text,/风格模板/);assert.match(text,/Style/);assert.match(text,/图面文案/);assert.match(text,/Headline/);
+  assert.match(text,/Selected service · chosen-model/);assert.match(text,/生成张数/);assert.match(text,/3 张/);assert.match(text,/完成/);
+  assert.equal(typeof view.configModalRefresh,'function');
+  modal.onClose();assert.equal(view.configModalRefresh,null);
 });
 test('global history includes both modes across articles and uses current unsaved results',()=>{
   const files=new Map(['Old.md','Current.md','old.png','manual.png','live.png'].map(path=>[path,{path,extension:path.endsWith('.md')?'md':'png'}]));
@@ -123,18 +144,18 @@ test('ribbon launch captures the active note before focusing a new or existing w
   for(const existing of [false,true]){
     let active={path:'Current.md',extension:'md'},selected,revealed=false;
     const leaf={view:{refreshForFile(file){selected=file;return true;}},async setViewState(){active=null;}};
-    const plugin={lastMarkdownPath:'Old.md',app:{vault:{getAbstractFileByPath:()=>({path:'Old.md',extension:'md'})},workspace:{getActiveFile:()=>active,getLeavesOfType:()=>existing?[leaf]:[],getLeaf:()=>leaf,revealLeaf(){revealed=true;}}}};
+    const plugin={articleAllowed:file=>file?.extension==='md',lastMarkdownPath:'Old.md',app:{vault:{getAbstractFileByPath:()=>({path:'Old.md',extension:'md'})},workspace:{getActiveFile:()=>active,getLeavesOfType:()=>existing?[leaf]:[],getLeaf:()=>leaf,revealLeaf(){revealed=true;}}}};
     await sourcePlugin.prototype.activateView.call(plugin);
     assert.equal(selected.path,'Current.md');assert.equal(plugin.lastMarkdownPath,'Current.md');assert.equal(revealed,true);
   }
 });
 test('opening the workbench prefers a recently focused note over its old remembered article',async()=>{
   let selected;const recent={path:'Recent.md',extension:'md'},old={path:'Old.md',extension:'md'};
-  const view={plugin:{lastMarkdownPath:'Recent.md',settings:{lastArticle:'Old.md'}},app:{workspace:{getActiveFile:()=>null,getLeavesOfType:()=>[]},vault:{getAbstractFileByPath:p=>p==='Recent.md'?recent:old}},useArticle(file){selected=file;},render(){}};
+  const view={plugin:{articleAllowed:file=>file?.extension==='md',lastMarkdownPath:'Recent.md',settings:{lastArticle:'Old.md'}},app:{workspace:{getActiveFile:()=>null,getLeavesOfType:()=>[]},vault:{getAbstractFileByPath:p=>p==='Recent.md'?recent:old}},useArticle(file){selected=file;},render(){}};
   await hooks.BDView.prototype.onOpen.call(view);assert.equal(selected,recent);
 });
 test('launching while busy keeps the job article; selecting it again preserves the draft',()=>{
-  const file={path:'Current.md',extension:'md'},view={articlePath:file.path,busy:true,useArticle(){throw new Error('Draft was reset');}};
+  const file={path:'Current.md',extension:'md'},view={plugin:{articleAllowed:file=>file?.extension==='md'},articlePath:file.path,busy:true,useArticle(){throw new Error('Draft was reset');}};
   assert.equal(hooks.BDView.prototype.refreshForFile.call(view,file),true);
   assert.equal(hooks.BDView.prototype.refreshForFile.call(view,{path:'Other.md',extension:'md'}),false);
 });
@@ -162,7 +183,7 @@ test('the reference button opens a multi-image local picker rather than scanning
 });
 test('article references persist, ignore temporary job refs, and restore only existing images',()=>{
   const image={path:'assets/ref.png',extension:'png'},text={path:'private.md',extension:'md'};
-  const plugin={settings:{sessions:{}},saveSettings:async()=>{},wechatThemes:require('../src/templates/wechat-themes')};
+  const plugin={articleAllowed:file=>file?.extension==='md',settings:{sessions:{}},saveSettings:async()=>{},wechatThemes:require('../src/templates/wechat-themes')};
   const view=new hooks.BDView({},plugin);view.app={metadataCache:{getFileCache:()=>null},vault:{getAbstractFileByPath:p=>p===image.path?image:p===text.path?text:null}};view.articlePath='Current.md';view.title='Current';view.refs=[image];
   view.remember();assert.equal(plugin.settings.sessions['Current.md'].referencePaths.join(','),image.path);
   view.busy=true;view.refs.push({path:'temporary-cover.png'});view.remember();assert.equal(plugin.settings.sessions['Current.md'].referencePaths.join(','),image.path);
@@ -200,9 +221,9 @@ test('context navigation arrows wrap within its group and busy tabs stay locked'
 });
 test('workflow navigation remembers each section and preserves drafts, plans and publication edits',()=>{
   const groups=new Map(),drafts={coverChatDraft:'Keep my brief',figurePlan:{id:'plan',phase:'draft'},xTweets:[{text:'Edited tweet'}]};let focus;
-  const view={...drafts,tab:'cover',createTab:'cover',publishTab:'article',renderTabGroup(parent,items,active,cls,label,select){groups.set(cls,{items,active,select});},contentEl:{querySelector(selector){focus=selector;return {focus(){}};}},navigateTab:hooks.BDView.prototype.navigateTab,render(){groups.clear();hooks.BDView.prototype.renderTabs.call(this,app);}};
-  const app={createDiv:()=>({createSpan(){}})};view.render();
-  assert.equal(groups.get('bd-workflow-tabs').items.length,2);assert.equal(groups.get('bd-context-tabs').items.length,2);
+  const view={...drafts,tab:'cover',createTab:'cover',publishTab:'article',renderTabGroup(parent,items,active,cls,label,select){groups.set(cls,{items,active,select});},contentEl:{querySelector(selector){focus=selector;return {focus(){}};}},navigateTab:hooks.BDView.prototype.navigateTab,renderArticlePicker:hooks.BDView.prototype.renderArticlePicker,activeFile:()=>null,button(){return {attrs:{},setAttribute(){},click(){}};},render(){groups.clear();hooks.BDView.prototype.renderTabs.call(this,app);}};
+  const app={createDiv:()=>({createSpan(){},createDiv:()=>({createSpan(){}})})};view.render();
+  assert.equal(groups.get('bd-workflow-tabs').items.length,5);assert.equal(groups.get('bd-context-tabs').items.length,2);
   groups.get('bd-workflow-tabs').select('publish');assert.equal(view.tab,'article');assert.equal(groups.get('bd-context-tabs').items.length,3);assert.equal(focus,'.bd-workflow-tabs .is-active');
   groups.get('bd-context-tabs').select('x');groups.get('bd-workflow-tabs').select('create');assert.equal(view.tab,'cover');
   groups.get('bd-context-tabs').select('figure');groups.get('bd-workflow-tabs').select('publish');assert.equal(view.tab,'x');
@@ -238,7 +259,7 @@ test('standard three-file release loads without sibling modules, assets, network
       assert.match(svg,/<image[^>]+href="data:image\/jpeg;base64,/);
       assert.ok(!/href="(?:https?:|file:|app:)/.test(svg));
     }
-    const app={vault:{adapter:{exists:async()=>true,mkdir:async()=>{},getBasePath(){throw new Error('Unexpected installed module lookup');}},on:()=>({})},workspace:{on:()=>({})}};
+    const app={vault:{adapter:{exists:async path=>!path.endsWith('publication.json'),mkdir:async()=>{},getBasePath(){return temp;}},on:()=>({})},workspace:{on:()=>({})}};
     const plugin=new Plugin(app); await plugin.onload();
     assert.equal(typeof plugin.layout.renderNeonCover,'function');
     assert.equal(typeof plugin.figureAgent.replacePlaceholders,'function');
@@ -372,7 +393,7 @@ test('cover library separates validated covers from body diagrams while preservi
 
 test('interface language follows Obsidian, persists explicit choices and rolls back failed saves',async()=>{
   const Plugin=load(path.join(root,'main.js'),true);
-  const app={vault:{adapter:{exists:async()=>true,mkdir:async()=>{}},on:()=>({})},workspace:{on:()=>({})}};
+  const app={vault:{adapter:{exists:async path=>!path.endsWith('publication.json'),mkdir:async()=>{}},on:()=>({})},workspace:{on:()=>({})}};
   const plugin=new Plugin(app);await plugin.onload();
   assert.equal(plugin.settings.language,'auto');assert.equal(plugin.commands[0].name,'打开配图工作台');
   let redraws=0;plugin.view={render(){redraws++;}};

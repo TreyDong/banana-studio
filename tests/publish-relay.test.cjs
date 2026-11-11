@@ -124,7 +124,7 @@ test('plugin pairs without storing the token in settings and recovers a lost enq
   };
   vm.runInNewContext((await fs.readFile(filename, 'utf8')) + '\nmodule.exports.View = BDView;', { module: mod, exports: mod.exports, require: id => id === 'obsidian' ? host : /\.(png|svg|webp)$/.test(id) ? 'data:image/png;base64,' : local(id), Buffer, URL, Blob, process, console, setTimeout, clearTimeout, AbortController }, { filename });
   const Plugin = mod.exports, secrets = new Map();
-  const plugin = Object.assign(Object.create(Plugin.prototype), { settings: { wechat: { delivery: 'browser', author: '作者' } }, app: { secretStorage: { getSecret: id => secrets.get(id), setSecret: async (id, value) => secrets.set(id, value), deleteSecret: async id => secrets.delete(id) } }, async saveSettings() { this.saved = JSON.stringify(this.settings); }, wechatFormatter: require('../src/wechat/formatter') });
+  const plugin = Object.assign(Object.create(Plugin.prototype), { settings: { wechat: { delivery: 'browser', author: '作者' } }, app: { secretStorage: { getSecret: id => secrets.get(id), setSecret: (id, value) => secrets.set(id, value), deleteSecret: id => { secrets.delete(id); return true; } } }, async saveSettings() { this.saved = JSON.stringify(this.settings); }, wechatFormatter: require('../src/wechat/formatter') });
   const pairing = await f.api('/v1/pairing', f.admin, { role: 'producer', label: 'Obsidian integration fixture' });
   await plugin.pairPublishRelay(f.base(), pairing.code);
   assert.equal(secrets.size, 1);

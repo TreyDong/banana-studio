@@ -1,6 +1,7 @@
 'use strict';
 const { t, configureLocale, imageCount, currentLanguage } = require('./i18n');
 const templateSelection = require('./templates/selection');
+const workspace = require('./workspace');
 /* Banana Studio — 文章配图、平台预览与发布。
  * 构思与图片服务独立配置；默认沿用本机 Codex 登录。
  */
@@ -13,6 +14,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+const publicationModel = require('./publishing/publication-model');
+const publicationUI = require('./publishing/publication-ui')({ Modal, Notice, MarkdownRenderer, FuzzySuggestModal });
 const VIEW = 'banana-studio-view';
 const MAX_COVER_COUNT = 4;
 function coverQuantity(value) { const n = Number(value); return Number.isFinite(n) ? Math.max(1, Math.min(MAX_COVER_COUNT, Math.floor(n))) : 1; }
@@ -472,7 +475,7 @@ class TemplateLibraryModal extends Modal {
     const automatic = toolbar.createEl('button', { text: t('Agent 自动选择'), cls: this.view.templateMode?.(this.templateScope) === 'auto' ? 'mod-cta' : '', attr: { type: 'button', 'aria-pressed': String(this.view.templateMode?.(this.templateScope) === 'auto') } });
     automatic.onclick = async () => {
       if (this.view.busy || this.view.coverChatBusy || this.view.insertingFigures) return;
-      this.view.setTemplateAuto(this.templateScope); this.view.remember(); this.view.renderBody(); this.close();
+      this.view.setTemplateAuto(this.templateScope); this.view.remember(); this.view.renderBody(); this.view.refreshConfigModal(); this.close();
       try { await this.view.plugin.saveSettings(); } catch (e) { new Notice(t('保存模板选择失败：') + e.message); }
     };
     const search = toolbar.createEl('input', { attr: { type: 'search', placeholder: t('搜索模板名称或说明'), 'aria-label': t('搜索模板名称或说明') } });
@@ -507,7 +510,7 @@ class TemplateLibraryModal extends Modal {
         card.onclick = async () => {
           if (this.view.busy || this.view.coverChatBusy) return;
           if (this.view.template(this.templateScope)?.id !== template.id || this.view.templateMode?.(this.templateScope) === 'auto') this.view.selectTemplate(template.id, this.templateScope);
-          this.view.remember(); this.view.renderBody(); this.close();
+          this.view.remember(); this.view.renderBody(); this.view.refreshConfigModal(); this.close();
           try { await this.view.plugin.saveSettings(); } catch (e) { new Notice(t('保存模板选择失败：') + e.message); }
         };
       }
@@ -520,6 +523,43 @@ class TemplateLibraryModal extends Modal {
     }
   }
   onClose() { this.contentEl.empty(); }
+}
+
+/* 封面页的任务设置收进弹窗：风格模板、图面文案、模型与生成张数。 */
+class CoverConfigModal extends Modal {
+  constructor(view) { super(view.app); this.view = view; }
+  onOpen() {
+    this.titleEl.setText(t('任务配置'));
+    this.modalEl.addClass('bd-cover-config-modal');
+    this.view.configModalRefresh = () => this.draw();
+    this.draw();
+  }
+  draw() {
+    const view = this.view;
+    this.contentEl.empty();
+    const template = this.contentEl.createDiv('bd-config-section');
+    view.label(template, t('风格模板'));
+    const picker = view.button(template, view.templatePickerLabel(), () => view.openTemplateLibrary(), 'bd-btn bd-cover-template-button', 'layout-template');
+    picker.setAttribute('aria-label', t('打开模板库') + ': ' + view.templatePickerLabel()); picker.title = view.templatePickerLabel(); view.addIcon(picker, 'chevron-down');
+    picker.disabled = !!(view.busy || view.coverChatBusy || !view.activeFile());
+    if (view.coverTextAvailable()) {
+      const text = this.contentEl.createDiv('bd-config-section');
+      view.label(text, t('图面文案'));
+      view.renderCoverTextInput(text);
+    }
+    const models = this.contentEl.createDiv('bd-config-section');
+    view.label(models, t('模型'));
+    view.renderModelPicker(models);
+    const count = this.contentEl.createDiv('bd-config-section');
+    view.label(count, t('生成张数'));
+    const quantity = count.createEl('select', { cls: 'bd-cover-count', attr: { 'aria-label': t('生成张数'), title: t('一次生成几张封面') } });
+    for (let n = 1; n <= MAX_COVER_COUNT; n++) quantity.createEl('option', { value: String(n), text: imageCount(n) });
+    quantity.value = String(view.coverCount); quantity.disabled = view.busy || view.coverChatBusy || !view.activeFile();
+    quantity.onchange = () => { view.coverCount = coverQuantity(quantity.value); view.remember(); };
+    const done = this.contentEl.createEl('button', { text: t('完成'), cls: 'bd-config-done mod-cta', attr: { type: 'button' } });
+    done.onclick = () => { this.close(); try { view.plugin.saveSettings().catch(() => {}); } catch (e) {} };
+  }
+  onClose() { this.view.configModalRefresh = null; this.contentEl.empty(); }
 }
 
 class TemplateManagerModal extends Modal {
@@ -738,7 +778,7 @@ async function ensureFolder(adapter, folderPath) {
   return cur;
 }
 
-const DEFAULT_OUTPUT_FOLDER = 'Banana Studio';
+let DEFAULT_OUTPUT_FOLDER = '附件/Banana Studio';
 const DEFAULT_TASK_PATTERN = '{article}-{source}/{date}_{time}-{type}-{task}';
 const DEFAULT_IMAGE_PATTERN = '{type}-{index}';
 const OUTPUT_TOKENS = { article: '文章名', notePath: '文章所在目录', source: '文章来源编号', date: '日期', time: '时间', type: '任务或图片类型', task: '本次任务编号', index: '两位图片序号', title: '图片主题' };
@@ -823,7 +863,8 @@ function imageFilesNear(app, activeFile) {
   return app.vault.getFiles().filter((f) => f.parent && f.parent.path === folder && exts.includes(f.extension.toLowerCase()));
 }
 
-async function fileToDataUrl(app, tfile) {
+async function fileToDataUrl(app, tfile, paths) {
+  if (!tfile || workspace.privatePath(tfile.path, paths)) throw new Error('隐私目录图片不可用于配图。');
   const buf = await app.vault.readBinary(tfile);
   return 'data:image/' + (tfile.extension === 'jpg' ? 'jpeg' : tfile.extension) + ';base64,' + arrayBufferToBase64(buf);
 }
@@ -871,8 +912,8 @@ class FigurePositionPicker extends FuzzySuggestModal {
 }
 
 class ArticlePicker extends FuzzySuggestModal {
-  constructor(app, onPick) { super(app); this.onPick = onPick; this.setPlaceholder(t('搜索文章标题或路径')); }
-  getItems() { return this.app.vault.getMarkdownFiles(); }
+  constructor(app, onPick, allowed) { super(app); this.onPick = onPick; this.allowed = allowed; this.setPlaceholder(t('搜索文章标题或路径')); }
+  getItems() { return this.app.vault.getMarkdownFiles().filter(f => this.allowed(f)); }
   getItemText(f) { return f.path; }
   onChooseItem(f) { this.onPick(f); }
 }
@@ -941,6 +982,7 @@ class BDView extends ItemView {
     this.manualBatchId = null;
     this.wechatThemeId = 'minimal'; this.wechatDigest = ''; this.wechatCoverPath = ''; this.wechatProgress = '';
     this.xTweets = []; this.xCoverSource = 'none'; this.xProgress = ''; this.xError = '';
+    this.polishVersions = null; this.polishPath = ''; this.polishSelected = 'current'; this.polishSource = ''; this.polishInstruction = ''; this.polishBusy = false;
     this.operation = null; this.viewClosed = false;
   }
   getViewType() { return VIEW; }
@@ -951,27 +993,29 @@ class BDView extends ItemView {
     const active = this.app.workspace.getActiveFile();
     const recent = this.app.vault.getAbstractFileByPath(this.plugin.lastMarkdownPath || '');
     const remembered = this.app.vault.getAbstractFileByPath(this.plugin.settings.lastArticle || '');
-    const openArticle = this.app.workspace.getLeavesOfType('markdown').map(l => l.view.file).find(f => f?.extension === 'md');
-    this.useArticle(active?.extension === 'md' ? active : recent?.extension === 'md' ? recent : openArticle || (remembered?.extension === 'md' ? remembered : null), false);
+    const openArticle = this.app.workspace.getLeavesOfType('markdown').map(l => l.view.file).find(f => this.plugin.articleAllowed(f));
+    this.useArticle([active, recent, openArticle, remembered].find(f => this.plugin.articleAllowed(f)) || null, false);
     this.render();
     // Model lists are refreshed explicitly; opening an article sends no API request.
   }
-  async onClose() { this.viewClosed = true; this.stopTasks(false); this.disposeArtboard(); this.remember(); clearTimeout(this.saveTimer); await this.plugin.saveSettings(); }
-  activeFile() { const f = this.app.vault.getAbstractFileByPath(this.articlePath); return f?.extension === 'md' ? f : null; }
+  async onClose() { if (this.variantDirty) { try { await this.saveVariantDraft?.(); } catch (error) { new Notice(error.message); } } this.viewClosed = true; this.stopTasks(false); this.disposeArtboard(); this.remember(); clearTimeout(this.saveTimer); await this.plugin.saveSettings(); }
+  activeFile() { const f = this.app.vault.getAbstractFileByPath(this.articlePath); return this.plugin.articleAllowed(f, this.articleExplicit) ? f : null; }
   refreshForFile(file) {
-    if (file?.extension !== 'md') return false;
+    if (!this.plugin.articleAllowed(file, true)) return false;
     if (file.path === this.articlePath) return true;
     if (this.busy || this.coverChatBusy || this.insertingFigures || this.operation) return false;
-    this.useArticle(file); return true;
+    this.useArticle(file, true, true); return true;
   }
-  useArticle(file, render = true) {
+  useArticle(file, render = true, explicit = false) {
+    if (file && !this.plugin.articleAllowed(file, explicit)) { new Notice('请选择笔记中的稿件或资料；日记与其他隐私目录不可用于配图。'); return false; }
+    if (this.variantDirty) return this.saveVariantDraft().then(() => this.useArticle(file, render, explicit)).catch(error => new Notice(error.message));
     if (this.articlePath) this.remember();
-    this.articlePath = file?.path || '';
+    this.articlePath = file?.path || ''; this.articleExplicit = explicit;
     this.previewMode = 'canvas'; this.canvasZoom = null;
     const saved = this.plugin.settings.sessions?.[this.articlePath] || {};
     this.title = saved.title ?? articleTitle(this.app, file); this.brief = saved.brief || ''; this.briefSource = saved.briefSource || 'manual';
     this.state = Object.assign({}, this.state, { templateId: 'blank' }, saved.state || {}); this.state.templateId ||= 'blank'; this.modules = new Set(saved.modules || []);
-    this.refs = [...new Set(saved.referencePaths || [])].map(p => this.app.vault.getAbstractFileByPath(p)).filter(f => f && /^(png|jpe?g|webp)$/i.test(f.extension));
+    this.refs = [...new Set(saved.referencePaths || [])].map(p => this.app.vault.getAbstractFileByPath(p)).filter(f => f && !workspace.privatePath(f.path, this.plugin.workspace) && /^(png|jpe?g|webp)$/i.test(f.extension));
     this.state.templateMode = templateSelection.selectionMode(saved, 'cover');
     this.coverTemplateReason = saved.coverTemplateReason || '';
     this.promptDraft = saved.promptDraft || ''; this.promptSource = saved.promptSource || ''; this.promptContext = saved.promptContext || ''; this.scene = saved.scene || ''; this.coverText = saved.coverText || null; this.freeDesign = saved.freeDesign || null;
@@ -1008,7 +1052,7 @@ class BDView extends ItemView {
       if (this.figureMode === 'agent' && this.figurePlan.phase !== 'inserted') this.restoreFigureSize();
       if (this.figureMode === 'agent' && this.figurePlan.phase !== 'inserted' && this.figurePlan.template?.id) this.figureTemplateId = this.figurePlan.template.id;
     }
-    this.wechatThemeId = this.plugin.wechatThemes.wechatTheme(saved.wechatThemeId || this.plugin.settings.wechat?.defaultTheme).id;
+    this.wechatThemeId = this.plugin.wechatThemes.wechatTheme(saved.wechatThemeId || (this.plugin.platformConfig?.('wechat') || this.plugin.settings.wechat)?.defaultTheme).id;
     this.wechatDigest = saved.wechatDigest || ''; this.wechatCoverPath = saved.wechatCoverPath || '';
     if (this.wechatCoverPath && !this.app.vault.getAbstractFileByPath(this.wechatCoverPath)) this.wechatCoverPath = '';
     this.xTweets = (saved.xTweets || []).map(t => ({ text: String(t.text || ''), images: (t.images || []).filter(p => this.app.vault.getAbstractFileByPath(p)), postedId: String(t.postedId || '') }));
@@ -1017,14 +1061,18 @@ class BDView extends ItemView {
     this.selectedFigure = 0; this.error = ''; this.progress = ''; this.wechatProgress = ''; this.xProgress = ''; this.xError = '';
     this.coverChat = saved.coverChat || []; this.coverChatDraft = saved.coverChatDraft || '';
     this.plugin.settings.lastArticle = this.articlePath;
+    BDView.prototype.restorePlatformState.call(this);
     if (render) { this.remember(); this.render(); }
   }
   remember() {
     if (!this.articlePath) return;
     this.plugin.settings.sessions ||= {};
+    const accountSessions = { ...(this.plugin.settings.sessions[this.articlePath]?.accountSessions || {}) };
+    if (this.boundAccounts?.wechat) accountSessions[this.boundAccounts.wechat] = { wechatTitle: this.wechatTitle, wechatThemeId: this.wechatThemeId, wechatDigest: this.wechatDigest, wechatCoverPath: this.wechatCoverPath };
+    if (this.boundAccounts?.x) accountSessions[this.boundAccounts.x] = { xTweets: this.xTweets.map(tweet => ({ ...tweet, images: [...tweet.images] })), xCoverSource: this.xCoverSource };
     const referencePaths = this.busy || this.coverChatBusy || this.operation ? (this.plugin.settings.sessions[this.articlePath]?.referencePaths || []) : this.refs.map(f => f.path);
     this.plugin.settings.sessions[this.articlePath] = { title: this.title, brief: this.brief, briefSource: this.briefSource, state: this.state, modules: [...this.modules], covers: this.covers, coverCount: this.coverCount, coverBatch: this.coverBatch.map(c => ({ ...c })), coverPath: this.cover?.vaultPath, coverMode: this.cover ? 'edit' : 'new', figures: this.figures.map(({ snapshot, ...figure }) => figure), figureCount: this.figureCount, figureSize: this.figureSize, figureCustomW: this.figureCustomW, figureCustomH: this.figureCustomH, figurePalette: this.figurePalette, figureRendering: this.figureRendering, figureTemplateId: this.figureTemplateId, manualBatchId: this.manualBatchId, figureMode: this.figureMode, figureRequirements: this.figureRequirements, figurePlan: this.figurePlan, figurePlans: this.figurePlans, coverChat: this.coverChat.filter(m => !m.pending).slice(-30), coverChatDraft: this.coverChatDraft, promptDraft: this.promptDraft, coverText: this.coverText, promptSource: this.promptSource, promptContext: this.promptContext, scene: this.scene, freeDesign: this.freeDesign, coverCopy: this.coverCopy, copySource: this.copySource, wechatThemeId: this.wechatThemeId, wechatDigest: this.wechatDigest, wechatCoverPath: this.wechatCoverPath, xTweets: this.xTweets.map(t => ({ text: t.text, images: [...t.images], postedId: t.postedId })), xCoverSource: this.xCoverSource };
-    Object.assign(this.plugin.settings.sessions[this.articlePath], { referencePaths, figureTemplateMode: this.figureTemplateMode, coverTemplateReason: this.coverTemplateReason, figureTemplateReason: this.figureTemplateReason });
+    Object.assign(this.plugin.settings.sessions[this.articlePath], { accountSessions, referencePaths, figureTemplateMode: this.figureTemplateMode, coverTemplateReason: this.coverTemplateReason, figureTemplateReason: this.figureTemplateReason });
     clearTimeout(this.saveTimer); this.saveTimer = setTimeout(() => this.plugin.saveSettings().catch(console.error), 250);
   }
   async persistFigures() { this.remember(); clearTimeout(this.saveTimer); await this.plugin.saveSettings(); }
@@ -1044,7 +1092,7 @@ class BDView extends ItemView {
   stopTasks(render = true) { this.stopTask(this.operation, false); if (render) this.render(); }
   generationJob() {
     const job = this.operation;
-    return job && ((this.tab === 'cover' && job.kind === 'cover') || (this.tab === 'figure' && ['plan', 'figures'].includes(job.kind)) || (this.tab === 'wechat' && job.kind === 'wechat') || (this.tab === 'x' && job.kind === 'x')) ? job : null;
+    return job && ((this.tab === 'cover' && job.kind === 'cover') || (this.tab === 'figure' && ['plan', 'figures'].includes(job.kind)) || (this.tab === 'wechat' && job.kind === 'wechat') || (this.tab === 'x' && job.kind === 'x') || (this.tab === 'polish' && job.kind === 'polish')) ? job : null;
   }
   renderStopButton(parent, cls = 'bd-btn bd-primary bd-full', compact = false) {
     const job = this.generationJob(); if (!job) return null;
@@ -1071,7 +1119,7 @@ class BDView extends ItemView {
       if (hint) card.createEl('p', { text: hint });
     }
   }
-  pickArticle() { if (!this.busy && !this.coverChatBusy) new ArticlePicker(this.app, f => this.useArticle(f)).open(); }
+  pickArticle() { if (!this.busy && !this.coverChatBusy) new ArticlePicker(this.app, f => this.useArticle(f, true, true), f => this.plugin.articleAllowed(f, true)).open(); }
   codexBin() { return findCodex(this.plugin.settings.codexPath); }
   moduleTexts() { return Object.values(MODULES).flatMap(cat => cat.items.filter(([id]) => this.modules.has(id)).map(([, , text]) => text)); }
   template(scope = 'cover') { return promptTemplates(this.plugin.settings).find(t => t.id === (scope === 'figure' ? this.figureTemplateId : this.state.templateId)) || null; }
@@ -1140,6 +1188,7 @@ class BDView extends ItemView {
     return '';
   }
   openTemplateLibrary(scope = 'cover') { if (!this.busy && !this.coverChatBusy && !this.insertingFigures && !(scope === 'figure' && this.figureSizeLocked())) new TemplateLibraryModal(this, scope).open(); }
+  refreshConfigModal() { this.configModalRefresh?.(); }
   newCover() {
     if (this.busy || this.coverChatBusy) return;
     this.cover = null; this.coverBatch = []; this.coverCopy = null; this.copySource = ''; this.refs = [];
@@ -1173,7 +1222,7 @@ class BDView extends ItemView {
     if (this.articlePath) sessions[this.articlePath] = { title: this.title, covers: this.covers, figures: this.figures };
     const entries = [], exists = path => !!path && !!this.app.vault.getAbstractFileByPath(path);
     for (const [path, session] of Object.entries(sessions)) {
-      if (this.app.vault.getAbstractFileByPath(path)?.extension !== 'md') continue;
+      if (!this.plugin.articleAllowed(this.app.vault.getAbstractFileByPath(path), path === this.articlePath && this.articleExplicit)) continue;
       const title = session.title || path;
       const covers = (session.covers || []).filter(c => exists(c.vaultPath));
       if (covers.length) entries.push({ path, title, type: 'cover', label: t('封面'), count: covers.length });
@@ -1192,8 +1241,8 @@ class BDView extends ItemView {
   }
   async openSavedGeneration(item) {
     if (this.busy || this.coverChatBusy || this.insertingFigures || this.operation) return;
-    const file = this.app.vault.getAbstractFileByPath(item.path); if (file?.extension !== 'md') return;
-    if (this.articlePath !== file.path) this.useArticle(file, false);
+    const file = this.app.vault.getAbstractFileByPath(item.path); if (!this.plugin.articleAllowed(file, true)) return;
+    if (this.articlePath !== file.path) this.useArticle(file, false, true);
     if (item.type === 'cover') {
       const image = this.cover || this.covers.at(-1);
       if (image) {
@@ -1217,13 +1266,13 @@ class BDView extends ItemView {
       menu.addItem(item => item.setTitle(kind === 'text' ? t('构思与规划') : t('图片生成')).setIsLabel(true));
       for (const c of this.plugin.settings.modelServices[kind]) menu.addItem(item => item.setTitle(c.name + ' · ' + (c.model || t('默认模型'))).setIcon(kind === 'text' ? 'message-square' : 'image').setChecked(c.id === this.plugin.settings.modelServices[kind + 'Id']).onClick(async () => {
         if (this.busy || this.coverChatBusy || this.insertingFigures || c.id === this.plugin.settings.modelServices[kind + 'Id']) return;
-        try { await this.plugin.selectConnection(kind, c.id); this.renderBody(); } catch (e) { new Notice(t('切换失败：') + e.message); }
+        try { await this.plugin.selectConnection(kind, c.id); this.renderBody(); this.refreshConfigModal(); } catch (e) { new Notice(t('切换失败：') + e.message); }
       }));
     }
     menu.addSeparator();
     menu.addItem(item => item.setTitle(t('添加与管理服务')).setIcon('settings-2').onClick(() => {
       if (this.busy || this.coverChatBusy || this.insertingFigures) return;
-      new ModelManagerModal(this.plugin, () => { if (!this.viewClosed) this.renderBody(); }).open();
+      new ModelManagerModal(this.plugin, () => { if (!this.viewClosed) this.renderBody(); this.refreshConfigModal(); }).open();
     }));
     anchor.setAttribute('aria-expanded', 'true');
     menu.onHide(() => anchor.setAttribute('aria-expanded', 'false'));
@@ -1268,11 +1317,13 @@ class BDView extends ItemView {
     }
     const rect = anchor.getBoundingClientRect(); menu.showAtPosition({ x: rect.left, y: rect.bottom });
   }
+  coverConfigSummary() { return this.templatePickerLabel() + ' · ' + imageCount(this.coverCount) + ' · ' + this.modelSummary(); }
   renderCoverConversation(panel, fields) {
     const chat = fields.createDiv('bd-cover-chat'); const head = chat.createDiv('bd-cover-chat-head');
     head.createSpan({ text: t('封面设计') });
     const reset = this.button(head, t('新建封面'), () => this.newCover(), 'bd-btn bd-cover-new', 'plus'); reset.setAttribute('aria-label', t('新建封面'));
     const messages = chat.createDiv('bd-cover-messages'); messages.setAttribute('role', 'log'); messages.setAttribute('aria-live', 'polite');
+    if (!this.coverChat.length) messages.createDiv({ cls: 'bd-cover-chat-empty', text: t('在下面描述想要的封面；风格、模型和张数都在「任务配置」里调整。') });
     for (const message of this.coverChat) {
       const row = messages.createDiv({ cls: 'bd-cover-message ' + (message.role === 'user' ? 'is-user' : 'is-ai'), text: message.text });
       if (message.templateName && message.role === 'user') row.createDiv({ cls: 'bd-cover-message-meta', text: message.templateName });
@@ -1282,27 +1333,20 @@ class BDView extends ItemView {
       const refs = compose.createDiv('bd-cover-ref-thumbs');
       for (const file of this.refs) { const remove = this.button(refs, '', () => { this.refs = this.refs.filter(f => f !== file); this.remember(); this.renderBody(); }, 'bd-cover-ref-thumb'); remove.setAttribute('aria-label', t('移除参考图：') + file.basename); remove.title = t('移除参考图：') + file.basename; remove.createEl('img', { attr: { src: this.resourceOf(file.path), alt: file.basename } }); remove.disabled = this.busy || this.coverChatBusy; }
     }
-    this.renderCoverTextInput(compose);
-    compose.createDiv({ cls: 'bd-cover-scope', text: this.cover ? t('当前封面') : t('新封面') });
-    const input = compose.createEl('textarea', { cls: 'bd-cover-input', attr: { rows: '3', 'aria-label': t('封面修改要求'), placeholder: this.cover ? t('说说这张图怎么改…') : t('说说想要什么封面…') } });
+    const composer = compose.createDiv('bd-cover-composer');
+    const input = composer.createEl('textarea', { cls: 'bd-cover-input', attr: { rows: '2', 'aria-label': t('封面修改要求'), placeholder: this.cover ? t('说说这张图怎么改…') : t('说说想要什么封面…') } });
     input.value = this.coverChatDraft; input.disabled = this.busy || this.coverChatBusy;
     input.oninput = () => { this.coverChatDraft = input.value; this.remember(); };
     input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void this.submitCoverChat(); } };
-    const options = compose.createDiv('bd-cover-options');
-    this.label(options, t('风格模板'));
-    const template = this.button(options, this.templatePickerLabel(), () => this.openTemplateLibrary(), 'bd-btn bd-cover-template-button', 'layout-template'); template.setAttribute('aria-label', t('打开模板库') + ': ' + this.templatePickerLabel()); template.title = this.templatePickerLabel(); this.addIcon(template, 'chevron-down');
-    const bar = compose.createDiv('bd-cover-compose-bar'), tools = bar.createDiv('bd-cover-tools'), actions = bar.createDiv('bd-cover-actions');
-    const model = this.renderModelPicker(options);
+    const bar = composer.createDiv('bd-cover-compose-bar'), tools = bar.createDiv('bd-cover-tools'), actions = bar.createDiv('bd-cover-actions');
     const attachments = tools.createDiv('bd-attachment-buttons');
     const ref = this.button(attachments, '', () => this.pickLocalReferences(), 'bd-btn bd-icon-button', 'paperclip'); ref.setAttribute('aria-label', t('从电脑添加参考图')); ref.title = t('从电脑添加参考图');
     const source = this.button(attachments, '', anchor => this.openReferenceMenu(anchor), 'bd-btn bd-icon-button bd-attachment-source', 'chevron-down'); source.setAttribute('aria-label', t('其他参考图来源')); source.setAttribute('aria-haspopup', 'menu'); source.title = t('其他参考图来源');
-    const quantity = actions.createEl('select', { cls: 'bd-cover-count', attr: { 'aria-label': t('生成张数'), title: t('一次生成几张封面') } });
-    for (let n = 1; n <= MAX_COVER_COUNT; n++) quantity.createEl('option', { value: String(n), text: imageCount(n) });
-    quantity.value = String(this.coverCount); quantity.disabled = this.busy || this.coverChatBusy || !this.activeFile();
-    quantity.onchange = () => { this.coverCount = coverQuantity(quantity.value); this.remember(); };
+    const config = this.button(tools, t('任务配置'), () => new CoverConfigModal(this).open(), 'bd-btn bd-cover-config', 'sliders-horizontal'); config.setAttribute('aria-label', t('任务配置') + '：' + this.coverConfigSummary()); config.title = this.coverConfigSummary();
+    actions.createSpan({ cls: 'bd-cover-scope', text: this.cover ? t('当前封面') : t('新封面') });
     const stop = this.renderStopButton(actions, 'bd-btn bd-primary bd-cover-send');
-    if (!stop) { const send = this.button(actions, this.cover ? t('修改') : t('生成'), () => this.submitCoverChat(), 'bd-btn bd-primary bd-cover-send', 'arrow-up'); send.setAttribute('aria-label', this.cover ? t('修改封面') : t('生成封面')); send.title = t('Enter 发送，Shift+Enter 换行'); send.disabled = this.busy || this.coverChatBusy || !this.activeFile(); }
-    for (const button of [template, ref, source, model]) button.disabled = this.busy || this.coverChatBusy || !this.activeFile();
+    if (!stop) { const send = this.button(actions, '', () => this.submitCoverChat(), 'bd-btn bd-primary bd-cover-send bd-cover-send-icon', 'arrow-up'); send.setAttribute('aria-label', this.cover ? t('修改封面') : t('生成封面')); send.title = t('Enter 发送，Shift+Enter 换行'); send.disabled = this.busy || this.coverChatBusy || !this.activeFile(); }
+    for (const button of [ref, source, config]) button.disabled = this.busy || this.coverChatBusy || !this.activeFile();
     const status = this.error || this.progress;
     if (status) { const prefix = this.coverBatchSlot ? t('第 ') + this.coverBatchSlot.index + ' / ' + this.coverBatch.length + t(' 张 · ') : ''; const message = compose.createDiv({ cls: 'bd-status' + (this.error ? ' is-error' : ''), text: prefix + status }); message.setAttribute('role', 'status'); }
     const failedSlots = (this.coverBatch || []).filter(slot => ['error', 'stopped'].includes(slot.status)).length;
@@ -1344,7 +1388,7 @@ class BDView extends ItemView {
     try {
       const file = this.app.vault.getAbstractFileByPath(source.vaultPath);
       if (!file) throw new Error(t('图片无法读取'));
-      const dataUrl = await fileToDataUrl(this.app, file); checkStopped(signal);
+      const dataUrl = await fileToDataUrl(this.app, file, this.plugin.workspace); checkStopped(signal);
       const marked = await annotateRegion(dataUrl, region); checkStopped(signal);
       const plat = savedCoverFormat(source);
       const prompt = regionEditPrompt(region, instruction, plat.w, plat.h);
@@ -1487,8 +1531,9 @@ class BDView extends ItemView {
   }
   // The canvas copy is authored by the planner from the article body; the user
   // can retune it without editing the long prompt by hand.
+  coverTextAvailable() { return !(this.state?.textLevel === 'none' || !(this.coverText || this.cover) || this.isLocalTemplate()); }
   renderCoverTextInput(parent) {
-    if (this.state?.textLevel === 'none' || !(this.coverText || this.cover) || this.isLocalTemplate()) return;
+    if (!this.coverTextAvailable()) return;
     const box = parent.createDiv('bd-cover-text-row');
     box.createSpan({ cls: 'bd-cover-text-label', text: t('图面文案') });
     const text = this.coverText || { headline: this.title.trim(), sub: '', source: 'title' };
@@ -1501,7 +1546,7 @@ class BDView extends ItemView {
     box.createSpan({ cls: 'bd-cover-text-source', text: this.coverText?.source === 'ai' ? t('AI 提炼') : t('文章标题') });
     const original = this.button(box, t('沿用原标题'), () => {
       this.coverText = { headline: this.title.trim(), sub: '', source: 'title' };
-      this.applyCoverTextToPrompt(); this.remember(); this.renderBody();
+      this.applyCoverTextToPrompt(); this.remember(); this.renderBody(); this.refreshConfigModal();
     }, 'bd-btn bd-cover-text-title');
     original.disabled = this.coverText?.source === 'title' || !this.title.trim();
     original.title = t('把图面文案换回文章标题');
@@ -1549,27 +1594,43 @@ class BDView extends ItemView {
   renderError(e) { this.contentEl.empty(); this.contentEl.createDiv({ cls: 'bd-error', text: t('工作台无法显示：') + e.message }); }
   render() {
     if (this.viewClosed) return;
+    if (this.variantDirty) return this.saveVariantDraft().then(() => this.render()).catch(error => new Notice(error.message));
     try {
       this.disposeArtboard();
       const root = this.contentEl; root.empty(); root.addClass('bd-root');
-      const app = root.createDiv('bd-app'); this.renderHead(app); this.renderTabs(app);
+      const app = root.createDiv('bd-app'); this.renderTabs(app);
       this.bodyEl = app.createDiv('bd-body'); this.renderBody();
     } catch (e) { this.renderError(e); }
   }
-  renderHead(app) {
-    const head = app.createDiv('bd-head'); const brand = head.createDiv('bd-brand'); this.addIcon(brand, 'aperture'); brand.createSpan({ text: 'Banana Studio' });
-    const actions = head.createDiv('bd-head-actions');
-    actions.createSpan({ cls: 'bd-article-context', text: t('当前文章') });
-    const article = this.button(actions, this.activeFile() ? articleTitle(this.app, this.activeFile()) : t('选择文章'), () => this.pickArticle(), 'bd-article-picker', 'file-text');
+  /* 顶部不再单独占一行：文章选择放在上下文导航行右侧，历史生成放在画布/预览区。 */
+  renderArticlePicker(parent) {
+    const article = this.button(parent, this.activeFile() ? articleTitle(this.app, this.activeFile()) : t('选择文章'), () => this.pickArticle(), 'bd-article-picker', 'file-text');
     article.title = this.articlePath || t('选择一篇 Markdown 文章'); article.disabled = this.busy || this.coverChatBusy || this.insertingFigures;
-    this.headEl = head;
-    const history = this.button(head, t('历史生成'), () => this.openGenerationHistory(), 'bd-btn bd-generation-history', 'history');
+    return article;
+  }
+  renderHistoryButton(parent) {
+    const history = this.button(parent, t('历史生成'), () => this.openGenerationHistory(), 'bd-btn bd-generation-history', 'history');
     history.title = t('查看本笔记库各篇文章的生成结果'); history.disabled = !!(this.busy || this.coverChatBusy || this.insertingFigures || this.operation);
+    return history;
+  }
+  restorePlatformState() {
+    const channels = this.plugin.settings.channels; if (!channels) return;
+    const saved = this.plugin.settings.sessions?.[this.articlePath] || {};
+    this.boundAccounts = { wechat: channels.selected.wechat || '', x: channels.selected.x || '' };
+    const wechatAccount = publicationModel.activeAccount(channels, 'wechat'), xAccount = publicationModel.activeAccount(channels, 'x');
+    const wechat = saved.accountSessions?.[wechatAccount?.id] || (wechatAccount?.legacy ? saved : {});
+    this.wechatTitle = wechat.wechatTitle || this.title;
+    this.wechatThemeId = this.plugin.wechatThemes.wechatTheme(wechat.wechatThemeId || wechatAccount?.config.defaultTheme).id;
+    this.wechatDigest = wechat.wechatDigest || ''; this.wechatCoverPath = wechat.wechatCoverPath || '';
+    const x = saved.accountSessions?.[xAccount?.id] || (xAccount?.legacy ? saved : {});
+    this.xTweets = publicationModel.clone(x.xTweets || []); this.xCoverSource = x.xCoverSource || 'none';
+    this.wechatProgress = ''; this.wechatError = ''; this.xProgress = ''; this.xError = '';
   }
   navigateTab(key, group = 'context') {
-    if (this.busy || this.coverChatBusy || this.insertingFigures || this.operation || !['cover', 'figure', 'article', 'wechat', 'x'].includes(key)) return false;
+    if (this.busy || this.coverChatBusy || this.insertingFigures || this.operation || !['cover', 'figure', 'article', 'wechat', 'x', 'xiaohongshu', 'calendar', 'platforms', 'polish'].includes(key)) return false;
+    if (this.variantDirty) { const save = this.saveVariantDraft; return save().then(() => this.navigateTab(key, group)); }
     this.tab = key;
-    if (['cover', 'figure'].includes(key)) this.createTab = key; else this.publishTab = key;
+    if (['cover', 'figure'].includes(key)) this.createTab = key; else if (['article', 'wechat', 'x', 'xiaohongshu'].includes(key)) this.publishTab = key;
     this.render();
     this.contentEl.querySelector(group === 'workflow' ? '.bd-workflow-tabs .is-active' : '.bd-context-tabs .is-active')?.focus();
     return true;
@@ -1592,16 +1653,40 @@ class BDView extends ItemView {
     }
   }
   renderTabs(app) {
-    const creating = ['cover', 'figure'].includes(this.tab);
-    this.renderTabGroup(app, [['create', t('制作配图'), 'images'], ['publish', t('预览发布'), 'book-open-check']], creating ? 'create' : 'publish', 'bd-workflow-tabs', t('工作台导航'), section => this.navigateTab(section === 'create' ? this.createTab : this.publishTab, 'workflow'));
+    const creating = ['cover', 'figure'].includes(this.tab), channels = this.plugin?.settings?.channels;
+    const workflow = creating ? 'create' : this.tab === 'polish' ? 'polish' : ['calendar', 'platforms'].includes(this.tab) ? this.tab : 'publish';
+    const items = [['create', t('制作配图'), 'images'], ['polish', t('润色'), 'wand-2'], ['publish', t('预览发布'), 'book-open-check'], ['calendar', t('发布日历'), 'calendar-days'], ['platforms', t('平台与账号'), 'users']];
+    if (this.tab === 'polish') {
+      /* 「当前文章」和顶部页签同一行，和「润色」并排。 */
+      const row = app.createDiv('bd-workflow-row');
+      this.renderTabGroup(row, items, workflow, 'bd-workflow-tabs', t('工作台导航'), section => this.navigateTab(section === 'create' ? this.createTab : section === 'polish' ? 'polish' : section === 'publish' ? this.publishTab : section, 'workflow'));
+      const current = row.createDiv('bd-context-current');
+      current.createSpan({ cls: 'bd-context-label', text: t('当前文章') });
+      this.renderArticlePicker(current);
+      return;
+    }
+    this.renderTabGroup(app, items, workflow, 'bd-workflow-tabs', t('工作台导航'), section => this.navigateTab(section === 'create' ? this.createTab : section === 'publish' ? this.publishTab : section, 'workflow'));
+    if (['calendar', 'platforms'].includes(this.tab)) return;
     const context = app.createDiv('bd-context-nav');
-    context.createSpan({ cls: 'bd-context-label', text: creating ? t('配图类型') : t('预览版本') });
-    this.renderTabGroup(context, creating ? [['cover', t('封面'), 'image'], ['figure', t('正文配图'), 'images']] : [['article', t('原文'), 'file-text'], ['wechat', t('公众号'), 'send'], ['x', 'X', 'at-sign']], this.tab, 'bd-context-tabs', creating ? t('配图类型') : t('预览版本'), key => this.navigateTab(key));
+    /* 制作配图里的「封面 / 正文配图」本身已经说明类型，不再加一行标签。 */
+    if (!creating) context.createSpan({ cls: 'bd-context-label', text: t('预览版本') });
+    const platforms = [['article', t('原文'), 'file-text'], ...publicationModel.PLATFORMS.filter(platform => channels ? channels.enabled[platform.id] : platform.id !== 'xiaohongshu').map(platform => [platform.id, t(platform.name), platform.icon])];
+    this.renderTabGroup(context, creating ? [['cover', t('封面'), 'image'], ['figure', t('正文配图'), 'images']] : platforms, this.tab, 'bd-context-tabs', creating ? t('配图类型') : t('预览版本'), key => this.navigateTab(key));
+    if (!creating && channels && !Object.values(channels.enabled).some(Boolean)) this.button(context, t('选择使用的平台'), () => this.navigateTab('platforms'));
+    const current = context.createDiv('bd-context-current');
+    current.createSpan({ cls: 'bd-context-label', text: t('当前文章') });
+    this.renderArticlePicker(current);
   }
   renderBody() {
     if (this.viewClosed) return;
+    if (this.variantDirty) return this.saveVariantDraft().then(() => this.renderBody()).catch(error => new Notice(error.message));
     this.disposeArtboard();
     const B = this.bodyEl; B.empty(); B.className = 'bd-body';
+    if (this.tab === 'calendar') { publicationUI.renderCalendar(this, B); return; }
+    if (this.tab === 'platforms') { publicationUI.renderPlatforms(this, B); return; }
+    if (this.tab === 'polish') { this.renderPolishTab(B); return; }
+    if (['wechat', 'x', 'xiaohongshu'].includes(this.tab) && this.plugin.settings.channels && !this.plugin.settings.channels.enabled[this.tab]) { this.tab = 'article'; this.render(); return; }
+    if (this.tab === 'xiaohongshu') { publicationUI.renderXiaohongshu(this, B).catch(error => { if (B.isConnected) B.createDiv({ cls: 'bd-error', text: error.message }); }); return; }
     if (this.tab === 'cover') this.renderCoverTab(B);
     else if (this.tab === 'figure') this.renderFigureTab(B);
     else if (this.tab === 'article') this.renderArticleTab(B).catch(e => { if (B.isConnected) B.createDiv({ cls: 'bd-error', text: e.message }); });
@@ -1617,8 +1702,11 @@ class BDView extends ItemView {
   renderCoverTab(B) {
     B.addClass('bd-cover-body');
     const { panel, fields, stage } = this.workspace(B);
-    const base = fields.createDiv('bd-section');
-    this.label(base, t('平台 / 尺寸')); const sel = base.createEl('select', { cls: 'bd-select', attr: { 'aria-label': t('平台 / 尺寸') } });
+    const base = fields.createDiv('bd-section bd-platform-section');
+    const platformRow = base.createDiv('bd-platform-row');
+    const platformLabel = platformRow.createEl('label', { cls: 'bd-label', text: t('平台 / 尺寸') });
+    const sel = platformRow.createEl('select', { cls: 'bd-select', attr: { 'aria-label': t('平台 / 尺寸') } });
+    sel.id = 'bd-platform-select'; platformLabel.htmlFor = sel.id;
     for (const group of [t('图文平台'), t('视频平台'), t('通用比例')]) {
       const opts = sel.createEl('optgroup', { attr: { label: t(group) } });
       for (const p of PLATFORMS.filter(p => p.group === group)) opts.createEl('option', { value: p.id, text: formatLabel(p) }).selected = p.id === this.state.platform;
@@ -1700,11 +1788,13 @@ class BDView extends ItemView {
   }
   renderStageHeader(stage, title, hint) {
     const top = stage.createDiv('bd-stage-head'); const left = top.createDiv(); left.createSpan({ text: title, cls: 'bd-stage-title' }); left.createSpan({ text: hint, cls: 'bd-stage-meta' });
+    const tools = top.createDiv('bd-stage-tools');
     if (this.tab === 'cover') {
-      const seg = top.createDiv('bd-seg');
+      const seg = tools.createDiv('bd-seg');
       for (const [id, text] of [['canvas', t('画布')], ['image', t('原图')], ['platform', t('平台示意')]]) { const b = this.button(seg, text, () => { this.previewMode = id; this.renderBody(); }, 'bd-seg-btn' + (id === this.previewMode ? ' is-active' : '')); b.setAttribute('aria-pressed', String(id === this.previewMode)); }
     }
-    if (this.tab === 'figure') { const history = this.button(top, t('本篇历史'), b => this.openFigureHistory(b), 'bd-btn', 'history'); history.disabled = this.busy || this.coverChatBusy || this.insertingFigures || !(this.figureHistory().length || this.manualFigureHistory().length); history.title = t('查看本篇文章的自动与手动批次'); }
+    if (this.tab === 'figure') { const history = this.button(tools, t('本篇历史'), b => this.openFigureHistory(b), 'bd-btn', 'history'); history.disabled = this.busy || this.coverChatBusy || this.insertingFigures || !(this.figureHistory().length || this.manualFigureHistory().length); history.title = t('查看本篇文章的自动与手动批次'); }
+    if (['cover', 'figure'].includes(this.tab)) this.renderHistoryButton(tools);
   }
   emptyStage(parent, title, hint, icon) {
     const empty = parent.createDiv('bd-empty'); this.addIcon(empty, icon); empty.createEl('h3', { text: title }); if (hint) empty.createEl('p', { text: hint });
@@ -1882,7 +1972,7 @@ class BDView extends ItemView {
   }
   pickVaultReferences() {
     if (this.busy || this.coverChatBusy || this.insertingFigures || this.operation || !this.activeFile()) return;
-    const sourcePath = this.articlePath, pool = this.app.vault.getFiles().filter(f => /^(png|jpe?g|webp)$/i.test(f.extension));
+    const sourcePath = this.articlePath, pool = this.app.vault.getFiles().filter(f => !workspace.privatePath(f.path, this.plugin.workspace) && /^(png|jpe?g|webp)$/i.test(f.extension));
     if (!pool.length) { new Notice(t('笔记库中暂无图片，可从电脑添加。')); return; }
     new RefPicker(this.app, pool, file => {
       if (this.busy || this.coverChatBusy || this.insertingFigures || this.operation || this.viewClosed || this.articlePath !== sourcePath) return;
@@ -2222,7 +2312,7 @@ class BDView extends ItemView {
     let reserved = false;
     this.busy = true; this.error = ''; this.progress = t('正在写入整批占位符…'); this.render();
     try {
-      snapshot.referenceUrls = await Promise.all(snapshot.refs.map(r => fileToDataUrl(this.app, r)));
+      snapshot.referenceUrls = await Promise.all(snapshot.refs.map(r => fileToDataUrl(this.app, r, this.plugin.workspace)));
       checkStopped(signal);
       const content = await this.app.vault.cachedRead(file), prepared = helper.preparePlaceholders(content, figures, file.path);
       if (prepared.reservation) plan.reservation = prepared.reservation;
@@ -2288,10 +2378,169 @@ class BDView extends ItemView {
     const f = this.activeFile(); const page = B.createDiv('bd-article-page');
     const top = page.createDiv('bd-article-toolbar'), heading = top.createDiv(); heading.createSpan({ cls: 'bd-stage-title', text: t('文章检查') });
     if (!f) { this.emptyStage(page, t('先选择一篇文章'), t('文章正文与插入后的图片会显示在这里。'), 'file-text'); return; }
-    this.button(top, t('打开原文'), () => this.app.workspace.getLeaf('tab').openFile(f), 'bd-btn', 'external-link');
+    const tools = top.createDiv('bd-article-tools');
+    this.button(tools, t('打开原文'), () => this.app.workspace.getLeaf('tab').openFile(f), 'bd-btn', 'external-link');
+    this.renderHistoryButton(tools);
     this.renderPendingFigures(page);
     const holder = page.createDiv('bd-article markdown-rendered'); const md = await this.articleMarkdown(f);
     if (holder.isConnected) await MarkdownRenderer.render(this.app, md, holder, f.path, this);
+  }
+
+  /* ================= 文章润色 ================= */
+
+  polishState() {
+    const polish = this.plugin.settings.polish ||= {};
+    const roles = this.plugin.polish.ensureRoles(polish);
+    if (!roles.some(role => role.id === polish.roleId)) polish.roleId = roles[0]?.id || '';
+    return { roles, role: roles.find(role => role.id === polish.roleId) || roles[0] || null };
+  }
+  polishSelectedVersion() {
+    if (!this.polishSelected || this.polishSelected === 'current') return null;
+    return (this.polishVersions || []).find(version => version.id === this.polishSelected) || null;
+  }
+  polishCurrentBody() { return this.plugin.polish.splitFrontmatter(this.polishSource).body; }
+  polishTime(version) {
+    const date = new Date(version.createdAt || 0), time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return date.toDateString() === new Date().toDateString() ? time : (date.getMonth() + 1) + '/' + date.getDate() + ' ' + time;
+  }
+  loadPolishVersions() {
+    const f = this.activeFile();
+    if (!f) { this.polishPath = this.articlePath; this.polishVersions = []; this.polishSource = ''; return; }
+    if (this.polishPath === this.articlePath) return;
+    this.polishPath = this.articlePath; this.polishVersions = null; this.polishSource = ''; this.polishSelected = 'current';
+    const file = this.plugin.polishVersionFile(f.path);
+    Promise.all([this.plugin.polish.loadVersions(file), this.app.vault.read(f)])
+      .then(([versions, source]) => {
+        if (this.polishPath !== this.articlePath) return;
+        this.polishVersions = versions; this.polishSource = source;
+        if (this.tab === 'polish' && this.bodyEl?.isConnected) this.renderBody();
+      })
+      .catch(error => {
+        this.polishVersions = []; this.error = t('润色版本读取失败：') + error.message;
+        if (this.tab === 'polish' && this.bodyEl?.isConnected) this.renderBody();
+      });
+  }
+  async runPolish() {
+    if (this.polishBusy || this.busy || this.coverChatBusy || this.insertingFigures || !this.activeFile() || this.tab !== 'polish') return;
+    const { role } = this.polishState();
+    if (!role) throw new Error(t('请先在设置 → 润色里配置至少一个角色'));
+    let skillText = '';
+    if (role.skillPath) {
+      try { skillText = await this.plugin.polish.readSkill(role.skillPath); }
+      catch (error) { new Notice(t('读取技能文件失败：') + error.message, 9000); return; }
+    }
+    const selected = this.polishSelectedVersion();
+    const job = this.beginTask('polish'), signal = job.controller.signal;
+    this.polishBusy = true; this.error = ''; this.progress = t('正在润色…'); this.render();
+    try {
+      const f = this.activeFile();
+      const raw = await this.app.vault.read(f); checkStopped(signal);
+      const { front, body } = this.plugin.polish.splitFrontmatter(raw);
+      const article = selected ? selected.text : body;
+      if (!article.trim()) throw new Error(t('文章正文是空的'));
+      const { system, user } = this.plugin.polish.buildPolishMessages({ article, role, skillText, instruction: this.polishInstruction, title: this.title || articleTitle(this.app, f) });
+      this.progress = t('正在等待模型返回，通常需要几十秒…'); this.renderBody();
+      const reply = await this.plugin.text(job.connections.text, system, user, signal); checkStopped(signal);
+      const text = this.plugin.polish.cleanPolished(reply);
+      if (!text) throw new Error(t('模型没有返回正文'));
+      const version = { id: Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6), roleId: role.id, roleName: role.name, createdAt: Date.now(), source: 'polish', front, text };
+      this.polishVersions = await this.plugin.polish.addVersion(this.plugin.polishVersionFile(f.path), version, f.path);
+      this.polishSelected = version.id; this.polishSource = raw;
+      new Notice(t('润色完成：{name}', { name: role.name }), 5000);
+    } catch (e) {
+      if (wasStopped(e, signal)) job.stopMessage = t('已停止');
+      else { this.error = t('润色失败：') + e.message; new Notice(this.error, 9000); }
+    } finally {
+      this.polishBusy = false; this.progress = ''; this.finishTask(job); this.render();
+    }
+  }
+  async applyPolishVersion(id) {
+    if (this.polishBusy || this.busy || this.coverChatBusy || this.insertingFigures) return;
+    const f = this.activeFile(), version = (this.polishVersions || []).find(item => item.id === id);
+    if (!f || !version) return;
+    const before = await this.app.vault.read(f);
+    const { front, body } = this.plugin.polish.splitFrontmatter(before);
+    if (body.trim() === version.text.trim()) { new Notice(t('正文已经是这个版本')); return; }
+    const file = this.plugin.polishVersionFile(f.path);
+    const snapshot = { id: 'snap-' + Date.now().toString(36), roleName: t('应用前快照'), createdAt: Date.now(), source: 'snapshot', front, text: body };
+    try {
+      await this.plugin.polish.addVersion(file, snapshot, f.path);
+      await this.app.vault.process(f, () => (version.front || front) + version.text);
+      this.polishVersions = await this.plugin.polish.loadVersions(file);
+      this.polishSource = await this.app.vault.read(f);
+      this.polishSelected = 'current';
+      this.render();
+      new Notice(t('已应用到正文，需要时可从版本里切回'), 6000);
+    } catch (error) {
+      this.error = t('应用失败：') + error.message; this.render(); new Notice(this.error, 9000);
+    }
+  }
+  async deletePolishVersion(id) {
+    if (this.polishBusy) return;
+    const f = this.activeFile(), version = (this.polishVersions || []).find(item => item.id === id);
+    if (!f || !version) return;
+    this.polishVersions = await this.plugin.polish.removeVersion(this.plugin.polishVersionFile(f.path), id, f.path);
+    if (this.polishSelected === id) this.polishSelected = 'current';
+    this.render(); new Notice(t('已删除版本'));
+  }
+  openPolishSettings() {
+    const setting = this.app.setting;
+    if (!setting) return;
+    /* 先让设置窗口打开，再切到插件页；否则窗口不一定出现在前台，看起来像点了没反应。 */
+    try { if (typeof setting.open === 'function') setting.open(); } catch (_) { /* 设置窗口打不开时忽略 */ }
+    try { if (typeof setting.openTabById === 'function') setting.openTabById(this.plugin.manifest.id); } catch (_) { /* 找不到插件页时忽略 */ }
+    const tab = (setting.pluginTabs || []).find(item => item.id === this.plugin.manifest.id);
+    if (tab) { tab.settingsPage = 'polish'; try { tab.display(); } catch (_) { /* 设置页重绘失败时保持原页面 */ } }
+    else new Notice(t('请在「设置 → 第三方插件」里打开 Banana Studio 设置，再切到「润色」'), 8000);
+  }
+  renderPolishTab(B) {
+    B.addClass('bd-polish-body');
+    const { panel, fields, stage } = this.workspace(B);
+    const f = this.activeFile();
+    if (!f) { this.emptyStage(stage, t('先选择一篇文章'), t('润色会读取当前文章，生成结果作为版本保存，可随时切换或回退。'), 'wand-2'); return; }
+    this.loadPolishVersions();
+    const { roles, role } = this.polishState();
+    const section = this.section(fields, t('润色角色'));
+    const row = section.createDiv('bd-wechat-actions');
+    const select = row.createEl('select', { cls: 'bd-select', attr: { 'aria-label': t('润色角色') } });
+    for (const item of roles) select.createEl('option', { value: item.id, text: item.name }).selected = item.id === role?.id;
+    select.disabled = this.polishBusy;
+    select.onchange = async () => { this.plugin.settings.polish.roleId = select.value; await this.plugin.saveSettings(); this.renderBody(); };
+    this.button(row, t('管理角色'), () => this.openPolishSettings(), 'bd-btn', 'settings').disabled = this.polishBusy;
+    if (role?.skillPath) section.createDiv({ cls: 'bd-wechat-hint', text: t('技能文件：') + role.skillPath });
+    else section.createDiv({ cls: 'bd-wechat-hint', text: t('角色提示词在「设置 → 润色」里编辑；填技能文件路径可以直接调用本地 skill。') });
+    const inputSec = this.section(fields, t('补充要求（可选）'));
+    const area = inputSec.createEl('textarea', { cls: 'bd-input bd-polish-instruction', attr: { rows: '3', 'aria-label': t('补充要求'), placeholder: t('例如：只改前三段、保留小标题、压到 800 字以内') } });
+    area.value = this.polishInstruction; area.disabled = this.polishBusy;
+    area.oninput = () => { this.polishInstruction = area.value; };
+    const selected = this.polishSelectedVersion();
+    inputSec.createDiv({ cls: 'bd-wechat-hint', text: t('输入：') + (selected ? selected.roleName + ' · ' + this.polishTime(selected) : t('当前正文')) + ' · ' + t('模型：') + (this.plugin.activeConnection('text')?.name || '—') });
+    const footer = panel.createDiv('bd-panel-footer');
+    if (this.operation?.kind === 'polish') this.renderStopButton(footer, 'bd-btn bd-primary bd-full');
+    else this.button(footer, t('开始润色'), () => this.runPolish(), 'bd-btn bd-primary bd-full', 'wand-2').disabled = this.busy || this.coverChatBusy || this.insertingFigures;
+    if (this.progress) footer.createDiv({ cls: 'bd-wechat-progress', text: this.progress });
+    if (this.error) footer.createDiv({ cls: 'bd-error', text: this.error });
+
+    const current = this.polishCurrentBody(), versions = this.polishVersions;
+    this.renderStageHeader(stage, t('版本'), versions ? t('共 {n} 个版本 · 当前正文 {c} 字', { n: versions.length, c: this.plugin.polish.wordCount(current) }) : t('读取中…'));
+    if (versions === null) { stage.createDiv({ cls: 'bd-wechat-stage-note', text: t('正在读取版本…') }); return; }
+    const strip = stage.createDiv('bd-polish-versions');
+    const entries = [{ id: 'current', label: t('正文'), meta: this.plugin.polish.wordCount(current) + t(' 字') }, ...versions.map(version => ({ id: version.id, label: version.roleName || t('润色'), meta: this.polishTime(version) + ' · ' + this.plugin.polish.wordCount(version.text) + t(' 字') }))];
+    for (const entry of entries) {
+      const b = this.button(strip, entry.label, () => { this.polishSelected = entry.id; this.renderBody(); }, 'bd-polish-version' + (this.polishSelected === entry.id ? ' is-active' : ''));
+      b.createSpan({ cls: 'bd-polish-version-meta', text: entry.meta });
+      b.disabled = this.polishBusy;
+    }
+    const preview = stage.createDiv('bd-polish-preview');
+    const shown = selected ? selected.text : current;
+    MarkdownRenderer.render(this.app, shown, preview, f.path, this).catch(() => { preview.setText(shown); });
+    const actions = stage.createDiv('bd-stage-footer');
+    if (selected) {
+      const same = selected.text.trim() === current.trim();
+      const apply = this.button(actions, same ? t('已是正文') : t('应用到正文'), () => this.applyPolishVersion(selected.id), 'bd-btn bd-primary', 'check');
+      apply.disabled = same || this.polishBusy || this.busy || this.coverChatBusy || this.insertingFigures;
+      this.button(actions, t('删除版本'), () => this.deletePolishVersion(selected.id), 'bd-btn', 'trash-2').disabled = this.polishBusy;
+    } else actions.createDiv({ cls: 'bd-wechat-hint', text: t('这是文章当前的正文。选一个版本可以预览、应用或回退。') });
   }
 
   /* ================= 公众号排版与发布 ================= */
@@ -2299,6 +2548,7 @@ class BDView extends ItemView {
   wechatTheme() { return this.plugin.wechatThemes.wechatTheme(this.wechatThemeId); }
   async wechatMarkdown(f) {
     let md = await this.articleMarkdown(f);
+    if (this.plugin.platformMarkdown) md = await this.plugin.platformMarkdown(f, 'wechat', md);
     const title = (this.title || articleTitle(this.app, f) || '').trim();
     if (title) md = md.replace(new RegExp('^#\\s+' + title.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&') + '\\s*(?:\\n+|$)'), '');
     return md;
@@ -2307,13 +2557,14 @@ class BDView extends ItemView {
     return this.plugin.wechatFormatter.formatWechat(await this.wechatMarkdown(f), this.wechatTheme());
   }
   resolveVaultImage(ref, sourceFile) {
-    const raw = String(ref || '').trim(); if (!raw) return null;
+    const raw = String(ref || '').trim(); if (!raw || workspace.privatePath(raw, this.plugin.workspace)) return null;
+    const allowed = f => f && !workspace.privatePath(f.path, this.plugin.workspace) && /^(png|jpe?g|gif|webp)$/i.test(f.extension);
     const linked = this.app.metadataCache.getFirstLinkpathDest(raw, sourceFile?.path || '');
-    if (linked?.extension) return linked;
+    if (linked) return allowed(linked) ? linked : null;
     const byPath = this.app.vault.getAbstractFileByPath(raw);
-    if (byPath?.extension) return byPath;
+    if (byPath) return allowed(byPath) ? byPath : null;
     const name = raw.split('/').pop();
-    return this.app.vault.getFiles().find(candidate => candidate.name === name && /\.(png|jpe?g|gif|webp)$/i.test(candidate.name)) || null;
+    return this.app.vault.getFiles().find(candidate => candidate.name === name && allowed(candidate)) || null;
   }
   /* 微信媒体接口不支持 webp/bmp，转成 PNG 再上传。 */
   async publishableImage(buf, file) {
@@ -2349,7 +2600,7 @@ class BDView extends ItemView {
     let html = formatted.html;
     for (let i = 0; i < formatted.images.length; i++) {
       const file = this.resolveVaultImage(formatted.images[i], f);
-      html = html.split(this.plugin.wechatFormatter.imagePlaceholder(i)).join(file ? await fileToDataUrl(this.app, file) : '');
+      html = html.split(this.plugin.wechatFormatter.imagePlaceholder(i)).join(file ? await fileToDataUrl(this.app, file, this.plugin.workspace) : '');
     }
     stage.empty(); stage.addClass('bd-wechat-stage');
     const phone = stage.createDiv('bd-wechat-phone');
@@ -2361,9 +2612,12 @@ class BDView extends ItemView {
     const f = this.activeFile();
     const { panel, fields, stage } = this.workspace(B);
     if (!f) { this.emptyStage(stage, t('先选择一篇文章'), t('公众号排版会读取当前文章：按主题生成内联样式，上传图片并推送草稿箱。'), 'send'); return; }
+    publicationUI.accountBar(this, fields, this.tab);
     this.renderPendingFigures(fields);
-    const cfg = this.plugin.settings.wechat ||= {};
+    const cfg = this.plugin.platformConfig('wechat');
 
+    await publicationUI.variantEditor(this, fields, 'wechat');
+    if (!fields.isConnected) return;
     const themeSec = this.section(fields, t('排版主题'));
     const themeRow = themeSec.createDiv('bd-wechat-theme-row');
     for (const theme of this.plugin.wechatThemes.wechatThemes()) {
@@ -2374,10 +2628,12 @@ class BDView extends ItemView {
     }
 
     const infoSec = this.section(fields, t('发布信息'));
+    if (!this.plugin.settings.channels) {
     this.label(infoSec, t('标题'));
     const titleInput = infoSec.createEl('input', { cls: 'bd-input', attr: { type: 'text', maxlength: '64', 'aria-label': t('标题') } });
-    titleInput.value = this.title || articleTitle(this.app, f);
-    titleInput.oninput = () => { this.title = titleInput.value; this.remember(); };
+    titleInput.value = this.wechatTitle || this.title || articleTitle(this.app, f);
+    titleInput.oninput = () => { this.wechatTitle = titleInput.value; this.remember(); };
+    }
     this.label(infoSec, t('作者'));
     const authorInput = infoSec.createEl('input', { cls: 'bd-input', attr: { type: 'text', maxlength: '8', 'aria-label': t('作者') } });
     authorInput.value = String(cfg.author || ''); authorInput.placeholder = t('可选，最多 8 字');
@@ -2395,11 +2651,12 @@ class BDView extends ItemView {
     const actionSec = panel.createDiv('bd-panel-footer bd-publish-footer');
     this.button(actionSec, t('重新排版预览'), () => this.renderBody(), 'bd-btn bd-full', 'refresh-cw').disabled = this.busy;
     const actionRow = actionSec.createDiv('bd-wechat-actions');
+    this.renderHistoryButton(actionRow);
     this.button(actionRow, t('复制富文本'), () => this.copyWechatRichText().catch(e => new Notice(e.message, 7000)), 'bd-btn', 'clipboard-copy').disabled = this.busy;
     const browserDelivery = cfg.delivery === 'browser';
     this.button(actionRow, browserDelivery ? t('发送到浏览器') : t('推送草稿箱'), () => (browserDelivery ? this.queueWechatForBrowser() : this.publishWechat()).catch(e => new Notice(e.message, 7000)), 'bd-btn bd-primary', 'send').disabled = this.busy;
     if (browserDelivery) {
-      const record = this.plugin.settings.publishRelay?.jobs?.find(item => item.articlePath === f.path);
+      const record = this.plugin.publishRelayConfig().jobs?.find(item => item.articlePath === f.path);
       const labels = { queued: '等待目标浏览器上线', claimed: '浏览器已领取', processing: '浏览器正在处理', draft_saved: '草稿已创建，请检查排版', failed: '处理失败', needs_review: '需要在浏览器检查', uncertain: '结果待核对，未自动重试', expired: '任务已过期', sending: '上传结果待核对，再次发送会核对同一任务' };
       if (record) {
         actionSec.createDiv({ cls: 'bd-wechat-hint', text: t(labels[record.status] || record.status) + (record.error ? ' · ' + record.error : '') });
@@ -2443,13 +2700,15 @@ class BDView extends ItemView {
   async publishWechat() {
     if (this.busy) return;
     const f = this.activeFile(); if (!f) return;
-    const cfg = this.plugin.settings.wechat ||= {};
-    const secret = await this.plugin.wechatSecret();
-    const title = ((this.title || articleTitle(this.app, f) || '').trim()) || t('无标题');
+    const cfg = this.plugin.platformConfig('wechat');
+    await this.saveVariantDraft?.();
+    this.plugin.requirePlatformAccount('wechat');
+    const secret = await this.plugin.wechatSecret(cfg);
+    const title = ((this.wechatTitle || this.title || articleTitle(this.app, f) || '').trim()) || t('无标题');
     const job = this.beginTask('wechat'), signal = job.controller.signal;
     this.busy = true; this.error = ''; this.wechatError = ''; this.wechatProgress = t('正在排版…'); this.render();
     try {
-      const client = new this.plugin.wechatClient.WechatClient(cfg.appId, secret, undefined, undefined, this.plugin.wechatRelay());
+      const client = new this.plugin.wechatClient.WechatClient(cfg.appId, secret, undefined, undefined, this.plugin.wechatRelay(cfg));
       const formatted = await this.wechatFormatted(f); checkStopped(signal);
       let html = formatted.html;
       for (let i = 0; i < formatted.images.length; i++) {
@@ -2483,15 +2742,17 @@ class BDView extends ItemView {
   async queueWechatForBrowser() {
     if (this.busy) return;
     const file = this.activeFile(); if (!file) return;
-    const relay = this.plugin.settings.publishRelay ||= {}, cfg = this.plugin.settings.wechat || {};
+    const relay = this.plugin.publishRelayConfig(), cfg = this.plugin.platformConfig('wechat');
     if (!relay.url || !relay.secretId || !relay.deviceId) throw new Error(t('请先在「公众号发布」设置中连接服务器并选择目标浏览器'));
+    this.plugin.requirePlatformAccount('wechat');
+    await this.saveVariantDraft?.();
     const operation = this.beginTask('wechat'); this.busy = true; this.wechatError = ''; this.wechatProgress = t('正在打包文章和图片…'); this.render();
     try {
       const markdown = await this.wechatMarkdown(file), formatted = await this.wechatFormatted(file);
       const cover = await this.wechatCoverFile(file, formatted);
       if (!cover) throw new Error(t('发送草稿需要封面，请先选择封面'));
       const packet = await require('./publishing/article-package').buildArticlePackage({
-        title: this.title || articleTitle(this.app, file), markdown, formatted, coverRef: cover.path, themeId: this.wechatThemeId,
+        title: this.wechatTitle || this.title || articleTitle(this.app, file), markdown, formatted, coverRef: cover.path, themeId: this.wechatThemeId,
         author: cfg.author, digest: this.wechatDigest || this.plugin.wechatFormatter.autoDigest(markdown),
         resolveImage: async ref => {
           const image = this.app.metadataCache.getFirstLinkpathDest(ref, file.path) || this.app.vault.getAbstractFileByPath(ref);
@@ -2522,22 +2783,25 @@ class BDView extends ItemView {
   }
   /* ================= X 发布 ================= */
 
-  xLimit() { return this.plugin.settings.x?.longPosts ? this.plugin.xThread.LONG_LIMIT : this.plugin.xThread.LIMIT; }
+  xLimit() { return this.plugin.platformConfig('x')?.longPosts ? this.plugin.xThread.LONG_LIMIT : this.plugin.xThread.LIMIT; }
   xMime(file) { return { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif' }[String(file?.extension || '').toLowerCase()] || 'image/png'; }
   async xGenerate(mode) {
     if (this.busy) return;
     const f = this.activeFile(); if (!f) return;
-    const cfg = this.plugin.settings.x ||= {};
+    await this.saveVariantDraft?.();
+    this.plugin.requirePlatformAccount('x');
+    const cfg = this.plugin.platformConfig('x');
     const job = this.beginTask('x'), signal = job.controller.signal;
     this.busy = true; this.xError = ''; this.xProgress = mode === 'ai' ? t('正在改写成推文串…') : t('正在切分…'); this.render();
     try {
-      const markdown = await this.wechatMarkdown(f); checkStopped(signal);
+      const original = await this.articleMarkdown(f);
+      const markdown = this.plugin.platformMarkdown ? await this.plugin.platformMarkdown(f, 'x', original) : original; checkStopped(signal);
       const limit = this.xLimit();
       let parts;
       if (mode === 'ai') {
         const connection = this.plugin.activeConnection('text');
         if (!connection) throw new Error(t('请先在「模型与连接」中配置构思模型'));
-        const raw = await this.plugin.text(connection, X_THREAD_SYSTEM, X_THREAD_USER(markdown), signal); checkStopped(signal);
+        const raw = await this.plugin.text(connection, X_THREAD_SYSTEM + '\n账号要求：' + (publicationModel.activeAccount(this.plugin.settings.channels, 'x')?.rewriteInstructions || ''), X_THREAD_USER(markdown), signal); checkStopped(signal);
         parts = this.plugin.xThread.parseAITweets(raw, limit - this.plugin.xThread.numberingReserve(cfg.numbering));
         if (!parts.length) throw new Error(t('模型没有返回可用推文，请重试或改用按长度切分'));
         parts = this.plugin.xThread.applyNumbering(parts, cfg.numbering);
@@ -2548,6 +2812,9 @@ class BDView extends ItemView {
         if (this.plugin.xThread.weightedLength(item) > limit) parts.splice(index, 1, ...this.plugin.xThread.hardSplit(item, limit));
       }
       this.xTweets = parts.map(text => ({ text, images: [], postedId: '' }));
+      const account = publicationModel.activeAccount(this.plugin.settings.channels, 'x');
+      const version = this.plugin.publication?.variants.find(item => item.sourcePath === f.path && item.accountId === account?.id);
+      if (this.xTweets.length) this.xTweets[0].images = (version?.images || []).slice(0, this.plugin.xClientMod.MAX_MEDIA_PER_TWEET);
       if (this.xCoverSource !== 'none') this.xTweets[0].images.unshift(this.xCoverSource);
       this.remember(); this.renderBody();
     } catch (e) {
@@ -2568,10 +2835,11 @@ class BDView extends ItemView {
   async publishX() {
     if (this.busy) return;
     if (!this.xTweets.length) { new Notice(t('请先生成或编辑推文串')); return; }
+    const account = this.plugin.requirePlatformAccount('x');
     const job = this.beginTask('x'), signal = job.controller.signal;
     this.busy = true; this.xError = ''; this.xProgress = t('正在发布…'); this.render();
     try {
-      const client = await this.plugin.xClient();
+      const client = await this.plugin.xClient(account?.id);
       const f = this.activeFile();
       let previousId = '';
       for (const done of this.xTweets) if (done.postedId) previousId = done.postedId;
@@ -2603,6 +2871,10 @@ class BDView extends ItemView {
         tweet.postedId = posted.id; previousId = posted.id; this.remember(); this.renderBody();
         if (index < total - 1) await xSleep(800, signal);
       }
+      if (account && this.xTweets.every(tweet => tweet.postedId)) {
+        const first = this.xTweets[0].postedId;
+        await this.plugin.recordPublication({ platform: 'x', accountId: account.id, title: this.title || f?.basename || 'X', sourcePath: f?.path || '', publishedAt: new Date().toISOString(), remoteId: first, url: 'https://x.com/i/status/' + first, origin: 'api' });
+      }
       this.xProgress = t('已发布');
       new Notice(t('推文串已发布，可在 X 上查看'), 6000);
     } catch (e) {
@@ -2615,10 +2887,13 @@ class BDView extends ItemView {
     const f = this.activeFile();
     const { panel, fields, stage } = this.workspace(B);
     if (!f) { this.emptyStage(stage, t('先选择一篇文章'), t('X 发布会读取当前文章：AI 改写或按长度切分成推文串，逐条编辑配图后发布或复制。'), 'at-sign'); return; }
+    publicationUI.accountBar(this, fields, this.tab);
     this.renderPendingFigures(fields);
-    const cfg = this.plugin.settings.x ||= {};
+    const cfg = this.plugin.platformConfig('x');
     const limit = this.xLimit();
 
+    await publicationUI.variantEditor(this, fields, 'x');
+    if (!fields.isConnected) return;
     const genSec = this.section(fields, t('推文串'));
     const genRow = genSec.createDiv('bd-wechat-actions');
     this.button(genRow, t('AI 改写'), () => this.xGenerate('ai').catch(e => new Notice(e.message, 7000)), 'bd-btn bd-primary', 'sparkles');
@@ -2680,6 +2955,7 @@ class BDView extends ItemView {
 
     const actionSec = panel.createDiv('bd-panel-footer bd-publish-footer');
     const actionRow = actionSec.createDiv('bd-wechat-actions');
+    this.renderHistoryButton(actionRow);
     this.button(actionRow, t('复制全部'), () => this.copyXTweets().catch(e => new Notice(e.message, 7000)), 'bd-btn', 'clipboard-copy').disabled = this.busy;
     this.button(actionRow, t('发布到 X'), () => this.publishX().catch(e => new Notice(e.message, 7000)), 'bd-btn bd-primary', 'send').disabled = this.busy;
     if (!String(cfg.consumerKey || '').trim()) actionSec.createDiv({ cls: 'bd-wechat-hint', text: t('尚未配置 X 密钥：请到「设置 → Banana Studio → X」完成配置；未配置也可以复制后手动发。') });
@@ -2695,7 +2971,7 @@ class BDView extends ItemView {
   renderXPreview(stage, f) {
     stage.empty(); stage.addClass('bd-x-stage');
     const column = stage.createDiv('bd-x-thread');
-    const cfg = this.plugin.settings.x || {}, limit = this.xLimit();
+    const cfg = this.plugin.platformConfig('x'), limit = this.xLimit();
     if (!this.xTweets.length) { column.createDiv({ cls: 'bd-wechat-stage-note', text: t('还没有推文：先在左侧生成，或点「加一条」手动编写。') }); return; }
     this.xTweets.forEach((tweet, index) => {
       const card = column.createDiv('bd-x-card');
@@ -2775,7 +3051,7 @@ class BDView extends ItemView {
         const [choice] = await this.chooseArticleTemplates(job, 'figure', content, this.figureRequirements);
         this.applyAutomaticTemplate(choice, 'figure'); snapshot.figureTemplate = figureRecipe(choice.template);
       }
-      snapshot.referenceUrls = await Promise.all(snapshot.refs.map(rf => fileToDataUrl(this.app, rf))); checkStopped(signal);
+      snapshot.referenceUrls = await Promise.all(snapshot.refs.map(rf => fileToDataUrl(this.app, rf, this.plugin.workspace))); checkStopped(signal);
       if (mode === 'cover') {
         const plat = coverFormat(snapshot.state);
         const previous = recentDirections(this.covers);
@@ -2841,7 +3117,7 @@ class BDView extends ItemView {
     const job = this.beginTask('figures'), signal = job.controller.signal; snapshot.signal = signal; snapshot.imageConnection = job.connections.image;
     this.busy = true; this.progress = t('正在重新生成配图…'); this.render();
     try {
-      snapshot.referenceUrls = await Promise.all(snapshot.refs.map(rf => fileToDataUrl(this.app, rf)));
+      snapshot.referenceUrls = await Promise.all(snapshot.refs.map(rf => fileToDataUrl(this.app, rf, this.plugin.workspace)));
       checkStopped(signal);
       const items = this.figureItems(); await this.runFigure(fg, snapshot, items.indexOf(fg) + 1, items.length);
     }
@@ -3085,6 +3361,65 @@ class ProviderModal extends Modal {
   onClose() { this.dialogClosed = true; this.requestController.abort(); for (const input of this.contentEl.querySelectorAll('input[type="password"]')) input.value = ''; this.contentEl.empty(); }
 }
 
+/* 润色角色编辑弹窗：设置页的列表点「编辑」后打开，改完保存才写回设置。 */
+class PolishRoleModal extends Modal {
+  constructor(app, plugin, role, options = {}) {
+    super(app);
+    this.plugin = plugin; this.role = role; this.options = options; this.saved = false;
+  }
+  onOpen() {
+    this.modalEl?.addClass('bd-role-modal-shell');
+    const root = this.contentEl; root.addClass('bd-role-modal');
+    root.createEl('h3', { text: this.options.adding ? t('新增角色') : t('编辑角色') });
+    const field = (label, hint) => {
+      const wrap = root.createDiv('bd-modal-field');
+      wrap.createEl('label', { cls: 'bd-label', text: label });
+      if (hint) wrap.createDiv({ cls: 'bd-settings-description', text: hint });
+      return wrap;
+    };
+    const nameInput = field(t('角色名称')).createEl('input', { cls: 'bd-settings-input', attr: { type: 'text', placeholder: t('例如：去 AI 味') } });
+    nameInput.value = this.role.name || '';
+    const promptInput = field(t('角色提示词'), t('写清改什么、保留什么；文章正文会附在后面一起发给模型。')).createEl('textarea', { cls: 'bd-settings-input is-mono bd-settings-textarea', attr: { rows: '8' } });
+    promptInput.value = this.role.prompt || '';
+    const skillInput = field(t('技能文件（可选）'), t('本地文件路径，例如 ~/.agents/skills/去ai味/SKILL.md，内容作为提示词的一部分。')).createEl('input', { cls: 'bd-settings-input is-mono', attr: { type: 'text', placeholder: '~/.agents/skills/xxx/SKILL.md' } });
+    skillInput.value = this.role.skillPath || '';
+    const footer = root.createDiv('bd-settings-footer');
+    this.modalButton(footer, t('检查文件'), async () => {
+      const target = skillInput.value.trim();
+      if (!target) throw new Error(t('请先填写技能文件路径'));
+      const text = await this.plugin.polish.readSkill(target);
+      new Notice(t('已读取技能文件：{n} 字', { n: text.length }), 6000);
+    });
+    footer.createDiv({ cls: 'bd-role-modal-gap' });
+    this.modalButton(footer, t('取消'), () => { this.saved = false; this.close(); });
+    this.modalButton(footer, t('保存'), async () => {
+      this.role.name = nameInput.value.trim().slice(0, 24) || t('未命名角色');
+      this.role.prompt = promptInput.value;
+      this.role.skillPath = skillInput.value.trim();
+      await this.plugin.saveSettings();
+      this.saved = true;
+      new Notice(t('已保存角色：') + this.role.name);
+      this.close();
+    }, true);
+  }
+  modalButton(parent, text, callback, primary = false) {
+    const b = parent.createEl('button', { cls: 'bd-settings-button' + (primary ? ' is-primary' : ''), attr: { type: 'button' } });
+    b.createSpan({ text });
+    b.onclick = async () => {
+      b.addClass('bd-btn-busy'); b.disabled = true;
+      try { await callback(b); b.addClass('bd-btn-done'); setTimeout(() => b.removeClass('bd-btn-done'), 1200); }
+      catch (e) { new Notice(e.message || String(e), 7000); }
+      finally { b.removeClass('bd-btn-busy'); if (b.isConnected) b.disabled = false; }
+    };
+    return b;
+  }
+  onClose() {
+    this.contentEl.empty();
+    if (!this.saved) this.options.onCancel?.();
+    else this.options.onDone?.();
+  }
+}
+
 class BDSettingTab extends PluginSettingTab {
   constructor(app, plugin) { super(app, plugin); this.plugin = plugin; this.settingsPage = 'files'; this.ruleDraft = null; this.modelChoices = []; }
   display() {
@@ -3095,7 +3430,15 @@ class BDSettingTab extends PluginSettingTab {
   button(parent, text, callback, primary = false, icon = '') {
     const b = parent.createEl('button', { cls: 'bd-settings-button' + (primary ? ' is-primary' : ''), attr: { type: 'button' } });
     if (icon) this.addSettingsIcon(b, icon); b.createSpan({ text });
-    b.onclick = async () => { try { await callback(b); } catch (e) { new Notice(e.message || String(e), 7000); } }; return b;
+    /* 每个按钮点击后都有可见反馈：执行期间置灰（busy），成功后按钮变绿 1.2 秒（done），失败弹 Notice。 */
+    b.onclick = async () => {
+      b.addClass('bd-btn-busy'); b.disabled = true;
+      try {
+        await callback(b);
+        b.addClass('bd-btn-done'); setTimeout(() => b.removeClass('bd-btn-done'), 1200);
+      } catch (e) { new Notice(e.message || String(e), 7000); }
+      finally { b.removeClass('bd-btn-busy'); if (b.isConnected) b.disabled = false; }
+    }; return b;
   }
   row(parent, title, description, stacked = false) {
     const row = parent.createDiv('bd-settings-row' + (stacked ? ' is-stack' : ''));
@@ -3119,7 +3462,7 @@ class BDSettingTab extends PluginSettingTab {
     const head = root.createDiv('bd-settings-head'), identity = head.createDiv('bd-settings-identity');
     this.addSettingsIcon(identity, 'aperture'); identity.createSpan({ cls: 'bd-settings-name', text: 'Banana Studio' }); identity.createSpan({ cls: 'bd-settings-version', text: 'v' + this.plugin.manifest.version });
     const tabs = head.createDiv({ cls: 'bd-settings-tabs', attr: { role: 'tablist', 'aria-label': t('Banana Studio 设置') } });
-    for (const [key, name, icon] of [['files', t('文件与命名'), 'folder-open'], ['models', t('模型与连接'), 'sliders-horizontal'], ['wechat', t('公众号发布'), 'send'], ['x', t('X 发布'), 'at-sign'], ['about', t('关于'), 'info']]) {
+    for (const [key, name, icon] of [['files', t('文件与命名'), 'folder-open'], ['models', t('模型与连接'), 'sliders-horizontal'], ['polish', t('润色'), 'wand-2'], ['wechat', t('公众号发布'), 'send'], ['x', t('X 发布'), 'at-sign'], ['about', t('关于'), 'info']].filter(([key]) => !this.plugin.settings.channels || !['wechat', 'x'].includes(key) || this.plugin.settings.channels.enabled[key])) {
       const b = this.button(tabs, name, () => { this.settingsPage = key; this.renderBody(); }, false, icon); b.className = 'bd-settings-tab' + (this.settingsPage === key ? ' is-active' : '');
       b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(this.settingsPage === key));
     }
@@ -3128,6 +3471,7 @@ class BDSettingTab extends PluginSettingTab {
     else if (this.settingsPage === 'models') this.renderModels(body);
     else if (this.settingsPage === 'wechat') this.renderWechatPage(body);
     else if (this.settingsPage === 'x') this.renderXPage(body);
+    else if (this.settingsPage === 'polish') this.renderPolishPage(body);
     else this.renderAbout(body);
   }
   renderFiles(body) {
@@ -3175,7 +3519,9 @@ class BDSettingTab extends PluginSettingTab {
     renderServiceCards(this.plugin, body, () => this.renderBody());
   }
   renderWechatPage(body) {
-    const cfg = this.plugin.settings.wechat ||= {};
+    publicationUI.settingsAccountBar(this, body, 'wechat');
+    if (this.plugin.settings.channels && !publicationModel.activeAccount(this.plugin.settings.channels, 'wechat')) { body.createDiv({ text: t('先启用平台并添加账号') }); return; }
+    const cfg = this.plugin.platformConfig('wechat');
 
     const delivery = this.group(body, t('发送方式')).body;
     const mode = this.row(delivery, t('公众号草稿'), t('浏览器方式通过服务器交接文章，使用目标 Chrome 已登录的账号。'));
@@ -3200,7 +3546,7 @@ class BDSettingTab extends PluginSettingTab {
       new Notice(t('AppSecret 已保存到系统密钥串'));
     }, true, 'key-round');
     if (cfg.secretId) this.button(secretRow.controls, t('清除密钥'), async () => {
-      await this.app.secretStorage?.deleteSecret?.(cfg.secretId).catch(() => {});
+      this.plugin.deleteStoredSecret(cfg.secretId);
       cfg.secretId = ''; await this.plugin.saveSettings(); this.display();
       new Notice(t('已清除 AppSecret'));
     });
@@ -3232,7 +3578,7 @@ class BDSettingTab extends PluginSettingTab {
         if (!pwInput.value) throw new Error(t('请先输入密码'));
         await this.plugin.storeWechatSecret(ssh, 'passwordSecretId', pwInput.value, 'ssh-password'); this.display(); new Notice(t('已保存 SSH 密码'));
       }, true);
-      if (ssh.passwordSecretId) this.button(pwRow.controls, t('清除'), async () => { await this.plugin.storeWechatSecret(ssh, 'passwordSecretId', '', 'ssh-password'); this.display(); });
+      if (ssh.passwordSecretId) this.button(pwRow.controls, t('清除'), async () => { await this.plugin.storeWechatSecret(ssh, 'passwordSecretId', '', 'ssh-password'); this.display(); new Notice(t('已清除 SSH 密码')); });
       const keyState = ssh.keySecretId ? t('当前：已保存粘贴的私钥内容。') : ssh.keyPath ? t('当前：私钥文件 ') + ssh.keyPath : t('当前：未设置。');
       const keyRow = this.row(relay, t('私钥'), t('粘贴私钥内容（OpenSSH / PEM / PuTTY 均可），或填写私钥文件路径，如 ~/.ssh/id_ed25519。') + keyState, true);
       const keyArea = keyRow.controls.createEl('textarea', { cls: 'bd-settings-input is-mono bd-settings-textarea', attr: { rows: '3', id: 'bd-setting-wechatSshKey', 'aria-label': t('私钥'), placeholder: '~/.ssh/id_ed25519' } });
@@ -3244,18 +3590,21 @@ class BDSettingTab extends PluginSettingTab {
         else { await this.plugin.storeWechatSecret(ssh, 'keySecretId', '', 'ssh-key'); ssh.keyPath = value; await this.plugin.saveSettings(); }
         this.display(); new Notice(t('已保存私钥设置'));
       }, true, 'key-round');
-      if (ssh.keySecretId || ssh.keyPath) this.button(keyRow.controls, t('清除'), async () => { ssh.keyPath = ''; await this.plugin.storeWechatSecret(ssh, 'keySecretId', '', 'ssh-key'); this.display(); });
+      if (ssh.keySecretId || ssh.keyPath) this.button(keyRow.controls, t('清除'), async () => { ssh.keyPath = ''; await this.plugin.storeWechatSecret(ssh, 'keySecretId', '', 'ssh-key'); this.display(); new Notice(t('已清除私钥设置')); });
       const ppRow = this.row(relay, t('私钥口令'), t('私钥设置了口令才需要填。') + (ssh.passphraseSecretId ? t('（已保存）') : ''), true);
       const ppInput = ppRow.controls.createEl('input', { cls: 'bd-settings-input is-mono', attr: { type: 'password', id: 'bd-setting-wechatSshPassphrase', 'aria-label': t('私钥口令') } });
-      this.button(ppRow.controls, t('保存'), async () => { await this.plugin.storeWechatSecret(ssh, 'passphraseSecretId', ppInput.value, 'ssh-passphrase'); this.display(); }, true);
-      if (ssh.passphraseSecretId) this.button(ppRow.controls, t('清除'), async () => { await this.plugin.storeWechatSecret(ssh, 'passphraseSecretId', '', 'ssh-passphrase'); this.display(); });
+      this.button(ppRow.controls, t('保存'), async () => {
+        if (!ppInput.value.trim()) throw new Error(t('请先输入私钥口令'));
+        await this.plugin.storeWechatSecret(ssh, 'passphraseSecretId', ppInput.value, 'ssh-passphrase'); this.display(); new Notice(t('已保存私钥口令'));
+      }, true);
+      if (ssh.passphraseSecretId) this.button(ppRow.controls, t('清除'), async () => { await this.plugin.storeWechatSecret(ssh, 'passphraseSecretId', '', 'ssh-passphrase'); this.display(); new Notice(t('已清除私钥口令')); });
       const testRow = this.row(relay, t('测试 SSH 连接'), ssh.hostKeyFingerprint ? t('已记录服务器指纹 ') + ssh.hostKeyFingerprint : t('首次连接会记录服务器指纹，之后指纹变化将拒绝连接（防中间人）。'), true);
       this.button(testRow.controls, t('测试 SSH 连接'), async () => {
         const { fingerprint } = await this.plugin.sshRelay.testConnection(this.plugin.wechatSshRaw());
         await this.plugin.rememberSshFingerprint(fingerprint);
         this.display(); new Notice(t('SSH 连接成功，端口转发可用。指纹：{fp}', { fp: fingerprint }), 8000);
       }, false, 'plug-zap');
-      if (ssh.hostKeyFingerprint) this.button(testRow.controls, t('重置指纹'), async () => { ssh.hostKeyFingerprint = ''; await this.plugin.saveSettings(); this.display(); });
+      if (ssh.hostKeyFingerprint) this.button(testRow.controls, t('重置指纹'), async () => { ssh.hostKeyFingerprint = ''; await this.plugin.saveSettings(); this.display(); new Notice(t('已重置服务器指纹，下次测试连接将重新记录')); });
     }
 
     const connectivity = this.group(body, t('接口连通')).body;
@@ -3276,7 +3625,9 @@ class BDSettingTab extends PluginSettingTab {
     connectivity.createDiv({ cls: 'bd-settings-description', text: t('发布流程：排版预览 → 推送到公众号草稿箱 → 在 mp.weixin.qq.com 后台确认并群发。检测报「IP 不在白名单」时，把复制到的 IP 加入公众号后台白名单即可。') });
   }
   renderXPage(body) {
-    const cfg = this.plugin.settings.x ||= {};
+    publicationUI.settingsAccountBar(this, body, 'x');
+    if (this.plugin.settings.channels && !publicationModel.activeAccount(this.plugin.settings.channels, 'x')) { body.createDiv({ text: t('先启用平台并添加账号') }); return; }
+    const cfg = this.plugin.platformConfig('x');
     const account = this.group(body, t('X 账号')).body;
     const authRow = this.row(account, t('认证方式'), t('OAuth 2.0 是官方推荐，浏览器授权一次、令牌自动续期；OAuth 1.0a 直接粘贴四个长期密钥。两者都要在放入 Project 的应用上配置。'));
     const authSel = authRow.controls.createEl('select', { cls: 'bd-settings-input', attr: { id: 'bd-setting-xAuth', 'aria-label': t('认证方式') } });
@@ -3299,7 +3650,7 @@ class BDSettingTab extends PluginSettingTab {
         if (!secretInput.value) throw new Error(t('请先输入 Client Secret'));
         await this.plugin.storeWechatSecret(cfg, 'oauth2SecretId', secretInput.value, 'x-oauth2-secret'); this.display(); new Notice(t('已保存 Client Secret'));
       }, true);
-      if (cfg.oauth2SecretId) this.button(secretRow.controls, t('清除'), async () => { await this.plugin.storeWechatSecret(cfg, 'oauth2SecretId', '', 'x-oauth2-secret'); this.display(); });
+      if (cfg.oauth2SecretId) this.button(secretRow.controls, t('清除'), async () => { await this.plugin.storeWechatSecret(cfg, 'oauth2SecretId', '', 'x-oauth2-secret'); this.display(); new Notice(t('已清除 Client Secret')); });
       const callback = 'http://127.0.0.1:8765/callback';
       const callbackRow = this.row(account, t('回调地址'), t('把这一行原样填到开发者应用的 Redirect URI 里。'), true);
       callbackRow.controls.createEl('code', { cls: 'bd-settings-input is-mono', attr: { id: 'bd-setting-xCallback' } }).textContent = callback;
@@ -3308,7 +3659,7 @@ class BDSettingTab extends PluginSettingTab {
       this.button(connectRow.controls, t('连接 X 账号'), () => this.plugin.xConnectOAuth2().catch(e => new Notice(e.message, 10000)), true, 'link');
       if (cfg.oauth2AccessId) {
         this.button(connectRow.controls, t('测试连接'), testConnection, false, 'plug-zap');
-        this.button(connectRow.controls, t('断开'), async () => { await this.plugin.storeWechatSecret(cfg, 'oauth2AccessId', '', 'x-oauth2-access'); await this.plugin.storeWechatSecret(cfg, 'oauth2RefreshId', '', 'x-oauth2-refresh'); cfg.tokenExpiresAt = 0; await this.plugin.saveSettings(); this.display(); });
+        this.button(connectRow.controls, t('断开'), async () => { await this.plugin.storeWechatSecret(cfg, 'oauth2AccessId', '', 'x-oauth2-access'); await this.plugin.storeWechatSecret(cfg, 'oauth2RefreshId', '', 'x-oauth2-refresh'); cfg.tokenExpiresAt = 0; await this.plugin.saveSettings(); this.display(); new Notice(t('已断开 X 账号连接')); });
       }
     } else {
       const intro = account.createDiv({ cls: 'bd-settings-description' });
@@ -3324,7 +3675,7 @@ class BDSettingTab extends PluginSettingTab {
       if (!keySecretInput.value) throw new Error(t('请先输入 API Key Secret'));
       await this.plugin.storeWechatSecret(cfg, 'consumerSecretId', keySecretInput.value, 'x-consumer-secret'); this.display(); new Notice(t('已保存 API Key Secret'));
     }, true);
-    if (cfg.consumerSecretId) this.button(keyRow.controls, t('清除'), async () => { await this.plugin.storeWechatSecret(cfg, 'consumerSecretId', '', 'x-consumer-secret'); this.display(); });
+    if (cfg.consumerSecretId) this.button(keyRow.controls, t('清除'), async () => { await this.plugin.storeWechatSecret(cfg, 'consumerSecretId', '', 'x-consumer-secret'); this.display(); new Notice(t('已清除 API Key Secret')); });
     const tokenRow = this.row(account, t('Access Token / Secret'), t('开启 Read and write 之后重新生成的用户令牌。') + (cfg.user ? t('已连接 @') + cfg.user : ''), true);
     const tokenInput = tokenRow.controls.createEl('input', { cls: 'bd-settings-input is-mono', attr: { type: 'password', id: 'bd-setting-xToken', 'aria-label': t('Access Token'), placeholder: cfg.accessTokenId ? t('已保存，输入新值可替换') : t('Access Token') } });
     const tokenSecretInput = tokenRow.controls.createEl('input', { cls: 'bd-settings-input is-mono', attr: { type: 'password', id: 'bd-setting-xTokenSecret', 'aria-label': t('Access Token Secret'), placeholder: cfg.accessTokenSecretId ? t('已保存，输入新值可替换') : t('Access Token Secret') } });
@@ -3335,7 +3686,7 @@ class BDSettingTab extends PluginSettingTab {
       await this.plugin.storeWechatSecret(cfg, 'accessTokenSecretId', secret, 'x-token-secret');
       this.display(); new Notice(t('已保存 Access Token'));
     }, true);
-    if (cfg.accessTokenId) this.button(tokenRow.controls, t('清除'), async () => { await this.plugin.storeWechatSecret(cfg, 'accessTokenId', '', 'x-token'); await this.plugin.storeWechatSecret(cfg, 'accessTokenSecretId', '', 'x-token-secret'); this.display(); });
+    if (cfg.accessTokenId) this.button(tokenRow.controls, t('清除'), async () => { await this.plugin.storeWechatSecret(cfg, 'accessTokenId', '', 'x-token'); await this.plugin.storeWechatSecret(cfg, 'accessTokenSecretId', '', 'x-token-secret'); this.display(); new Notice(t('已清除 Access Token')); });
     this.button(tokenRow.controls, t('测试连接'), testConnection, false, 'plug-zap');
     }
 
@@ -3364,13 +3715,64 @@ class BDSettingTab extends PluginSettingTab {
     }
     if (cfg.network === 'ssh' && !this.plugin.wechatRelayConfigured()) network.createDiv({ cls: 'bd-settings-description', text: t('SSH 中转尚未启用：请到「公众号发布」设置的固定 IP 中转里打开开关并填写服务器信息。') });
   }
+  renderPolishPage(body) {
+    const polish = this.plugin.settings.polish ||= {};
+    const roles = this.plugin.polish.ensureRoles(polish);
+    const intro = this.group(body, t('文章润色')).body;
+    intro.createDiv({ cls: 'bd-settings-description', text: t('每个角色是一套提示词。工作台「润色」页选角色后，文章正文会交给构思模型改稿，结果存成版本，可以预览、应用和回退。') });
+    intro.createDiv({ cls: 'bd-settings-description', text: t('技能文件填本地 Markdown 的绝对路径（支持 ~/ 开头），文件内容会一起作为提示词，比如你自己的「去 AI 味」skill。') });
+    const list = this.group(body, t('润色角色'), 'bd-polish-roles').body;
+    const rows = list.createDiv('bd-role-list');
+    for (const role of roles) {
+      const row = rows.createDiv('bd-role-row' + (polish.roleId === role.id ? ' is-current' : ''));
+      const info = row.createDiv('bd-role-info');
+      info.createDiv({ cls: 'bd-role-name', text: role.name || t('未命名角色') });
+      const meta = [t('提示词 {n} 字', { n: String(role.prompt || '').length })];
+      if (role.skillPath) meta.push(t('技能文件'));
+      if (role.builtin) meta.push(t('内置'));
+      if (polish.roleId === role.id) meta.push(t('当前使用'));
+      info.createDiv({ cls: 'bd-role-meta', text: meta.join(' · ') });
+      const actions = row.createDiv('bd-role-actions');
+      this.button(actions, t('编辑'), () => this.openPolishRoleModal(role), false, 'pencil');
+      this.button(actions, t('删除'), async () => {
+        polish.roles = roles.filter(item => item.id !== role.id);
+        if (!polish.roles.length) polish.roles = this.plugin.polish.defaultRoles();
+        if (!polish.roles.some(item => item.id === polish.roleId)) polish.roleId = polish.roles[0].id;
+        await this.plugin.saveSettings(); this.display(); this.plugin.view?.renderBody?.();
+        new Notice(t('已删除角色：') + role.name);
+      });
+    }
+    const actions = list.createDiv('bd-settings-footer');
+    this.button(actions, t('新增角色'), () => {
+      const role = { id: 'role-' + Date.now().toString(36), name: t('新角色'), prompt: '', skillPath: '' };
+      polish.roles.push(role);
+      this.openPolishRoleModal(role, { adding: true });
+    }, true, 'plus');
+    this.button(actions, t('恢复默认角色'), async () => {
+      const builtin = new Set(this.plugin.polish.DEFAULT_ROLES.map(role => role.id));
+      const custom = polish.roles.filter(role => !builtin.has(role.id));
+      polish.roles = [...this.plugin.polish.defaultRoles(), ...custom];
+      await this.plugin.saveSettings(); this.display(); this.plugin.view?.renderBody?.(); new Notice(t('已恢复默认角色，自定义角色保留'));
+    });
+  }
+  openPolishRoleModal(role, options = {}) {
+    new PolishRoleModal(this.app, this.plugin, role, {
+      ...options,
+      onDone: () => { this.display(); this.plugin.view?.renderBody?.(); },
+      onCancel: () => {
+        const polish = this.plugin.settings.polish;
+        if (options.adding && polish?.roles) polish.roles = polish.roles.filter(item => item.id !== role.id);
+        this.display(); this.plugin.view?.renderBody?.();
+      },
+    }).open();
+  }
   renderAbout(body) {
     const about = this.group(body, 'Banana Studio').body;
     about.createEl('p', { cls: 'bd-settings-description', text: t('从文章内容构思封面，先规划、再批量生成正文配图，并按位置插入文章。封面与配图共用风格模板库。') });
     for (const [name, value] of [[t('版本'), this.plugin.manifest.version], ['Obsidian', this.plugin.manifest.minAppVersion + t(' 或更新版本')], [t('使用范围'), t('桌面版')], [t('内置与自定义模板'), String(promptTemplates(this.plugin.settings).length) + t(' 个')]]) { const row = this.row(about, name, ''); row.controls.createSpan({ text: value }); }
   }
   renderBrowserRelay(body) {
-    const cfg = this.plugin.settings.publishRelay ||= {};
+    const cfg = this.plugin.publishRelayConfig();
     const group = this.group(body, t('发布服务器')).body;
     const address = this.row(group, t('服务器地址'), t('跨设备需要 HTTPS；只上传主动发送的文章和图片。'));
     const urlInput = this.input(address, 'publishRelayUrl', cfg.url || '', 'https://publish.example.com');
@@ -3389,7 +3791,7 @@ class BDSettingTab extends PluginSettingTab {
     for (const device of devices) picker.createEl('option', { value: device.id, text: device.label });
     picker.value = cfg.deviceId || '';
     picker.onchange = async () => { cfg.deviceId = picker.value; cfg.deviceLabel = devices.find(device => device.id === picker.value)?.label || ''; await this.plugin.saveSettings(); };
-    this.button(target.controls, t('刷新浏览器'), async () => { this.relayDevices = (await this.plugin.browserRelayRequest('/v1/devices')).devices; this.display(); }, false, 'refresh-cw');
+    this.button(target.controls, t('刷新浏览器'), async () => { this.relayDevices = (await this.plugin.browserRelayRequest('/v1/devices')).devices; this.display(); new Notice(this.relayDevices.length ? t('已刷新浏览器列表') : t('未发现已配对的浏览器')); }, false, 'refresh-cw');
     if (cfg.url) group.createDiv({ cls: 'bd-settings-description', text: t('已连接：') + cfg.url });
   }
 }
@@ -3398,7 +3800,7 @@ class BDSettingTab extends PluginSettingTab {
 
 const X_DEFAULTS = { auth: 'oauth1', clientId: '', oauth2SecretId: '', oauth2AccessId: '', oauth2RefreshId: '', tokenExpiresAt: 0, consumerKey: '', consumerSecretId: '', accessTokenId: '', accessTokenSecretId: '', user: '', network: 'direct', proxyUrl: '', numbering: 'suffix', longPosts: false };
 const WECHAT_SSH_DEFAULTS = { enabled: false, host: '', port: 22, username: '', keyPath: '', passwordSecretId: '', keySecretId: '', passphraseSecretId: '', hostKeyFingerprint: '' };
-const DEFAULTS = { language: 'auto', codexPath: '', outputFolder: DEFAULT_OUTPUT_FOLDER, taskFolderPattern: DEFAULT_TASK_PATTERN, imageNamePattern: DEFAULT_IMAGE_PATTERN, model: '', modelServices: null, sessions: {}, lastArticle: '', promptTemplates: [], deletedPromptTemplates: [], hiddenPromptTemplates: [], wechat: { appId: '', secretId: '', author: '', defaultTheme: 'minimal', ssh: { ...WECHAT_SSH_DEFAULTS } }, x: { ...X_DEFAULTS } };
+const DEFAULTS = { language: 'auto', codexPath: '', outputFolder: DEFAULT_OUTPUT_FOLDER, taskFolderPattern: DEFAULT_TASK_PATTERN, imageNamePattern: DEFAULT_IMAGE_PATTERN, model: '', modelServices: null, sessions: {}, lastArticle: '', promptTemplates: [], deletedPromptTemplates: [], hiddenPromptTemplates: [], wechat: { appId: '', secretId: '', author: '', defaultTheme: 'minimal', ssh: { ...WECHAT_SSH_DEFAULTS } }, x: { ...X_DEFAULTS }, polish: { roles: [], roleId: '' } };
 
 module.exports = class BananaStudioPlugin extends Plugin {
   async onload() {
@@ -3414,16 +3816,30 @@ module.exports = class BananaStudioPlugin extends Plugin {
     this.xClientMod = require('./x/client.js');
     this.xOauth2 = require('./x/oauth2.js');
     this.netProxy = require('./net/proxy.js');
+    this.polish = require('./polish/polish.js');
     const savedSettings = await this.loadData() || {};
+    this.workspace = workspace.loadWorkspace(this.app.vault.adapter.getBasePath?.());
+    DEFAULT_OUTPUT_FOLDER = this.workspace.attachmentsDir + '/Banana Studio';
     this.settings = Object.assign({}, DEFAULTS, savedSettings);
+    this.settings.outputFolder = workspace.outputFolder(savedSettings.outputFolder, this.workspace);
+    const migratedOutput = this.settings.outputFolder !== savedSettings.outputFolder;
     this.settings.wechat = { ...DEFAULTS.wechat, ...(savedSettings.wechat || {}), ssh: { ...WECHAT_SSH_DEFAULTS, ...(savedSettings.wechat?.ssh || {}) } };
     this.settings.x = { ...X_DEFAULTS, ...(savedSettings.x || {}) };
+    this.settings.polish = { ...DEFAULTS.polish, ...(savedSettings.polish || {}) };
+    const seededPolish = !Array.isArray(savedSettings.polish?.roles) || !savedSettings.polish.roles.length;
+    if (seededPolish) this.settings.polish.roles = this.polish.defaultRoles();
+    const migratedChannels = publicationModel.migrateChannels(this.settings);
+    const migratedPublicationFolders = publicationModel.migrateAccountPublicationFolders(this.settings.channels);
+    if (migratedChannels && savedSettings.publishRelay) { const account = publicationModel.activeAccount(this.settings.channels, 'wechat'); if (account) account.config.publishRelay = publicationModel.clone(savedSettings.publishRelay); }
+    this.publicationPath = this.app.vault.configDir + '/plugins/' + this.manifest.id + '/publication.json';
+    this.publication = await this.app.vault.adapter.exists(this.publicationPath) ? JSON.parse(await this.app.vault.adapter.read(this.publicationPath)) : { version: 1, variants: [], records: [] };
+    if (this.publication.version !== 1 || !Array.isArray(this.publication.variants) || !Array.isArray(this.publication.records)) throw new Error('发布记录格式无法识别，原文件未修改');
     configureLocale(() => this.settings.language, () => typeof getLanguage === 'function' ? getLanguage() : globalThis.localStorage?.getItem('language') || globalThis.document?.documentElement?.lang || globalThis.navigator?.language || 'en');
     if (!savedSettings.outputFolder) this.settings.outputFolder = DEFAULT_OUTPUT_FOLDER;
     this.settings.taskFolderPattern ||= DEFAULT_TASK_PATTERN; this.settings.imageNamePattern ||= DEFAULT_IMAGE_PATTERN;
     const migratedServices = this.services.migrate(this.settings);
     await ensureFolder(this.app.vault.adapter, imageFolder(this.settings.outputFolder, DEFAULT_OUTPUT_FOLDER));
-    if (migratedServices || !savedSettings.outputFolder || !savedSettings.taskFolderPattern || !savedSettings.imageNamePattern) await this.saveSettings();
+    if (migratedOutput || migratedPublicationFolders || migratedChannels || migratedServices || seededPolish || !savedSettings.outputFolder || !savedSettings.taskFolderPattern || !savedSettings.imageNamePattern) await this.saveSettings();
     this.view = null;
 
     this.registerView(VIEW, (leaf) => {
@@ -3433,15 +3849,18 @@ module.exports = class BananaStudioPlugin extends Plugin {
     this.ribbon = this.addRibbonIcon('image', t('Banana Studio'), () => this.activateView());
     this.openCommand = { id: 'open', name: t('打开配图工作台'), callback: () => this.activateView() };
     this.openCommand = this.addCommand(this.openCommand) || this.openCommand;
-    this.addSettingTab(new BDSettingTab(this.app, this));
+    this.settingsTab = new BDSettingTab(this.app, this);
+    this.addSettingTab(this.settingsTab);
+    this.addCommand({ id: 'publication-calendar', name: t('打开发布日历'), callback: async () => { await this.activateView(); this.view.navigateTab('calendar', 'workflow'); } });
 
-    const trackArticle = file => { if (file?.extension === 'md') this.lastMarkdownPath = file.path; };
+    const trackArticle = file => { if (this.articleAllowed(file)) this.lastMarkdownPath = file.path; };
     trackArticle(this.app.workspace.getActiveFile?.());
     this.registerEvent(this.app.workspace.on('file-open', trackArticle));
     this.registerEvent(this.app.workspace.on('active-leaf-change', leaf => trackArticle(leaf?.view?.file)));
 
     this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
       if (file.extension !== 'md') return;
+      this.updatePublication(data => publicationModel.renameSource(data, oldPath, file.path)).catch(console.error);
       const sessions = this.settings.sessions;
       if (sessions?.[oldPath]) { sessions[file.path] = sessions[oldPath]; delete sessions[oldPath]; }
       const session = sessions?.[file.path];
@@ -3451,23 +3870,252 @@ module.exports = class BananaStudioPlugin extends Plugin {
       if (this.view?.articlePath === oldPath) { this.view.articlePath = file.path; this.view.render(); }
       this.saveSettings().catch(console.error);
     }));
-
+    this.refreshCalendarIndex();
+    this.watchPublicationFolders();
+    this.publicationPropertiesStopped = false;
+    this.app.workspace.onLayoutReady?.(() => { this.fillPublicationFolders().catch(console.error); });
   }
-  onunload() { this.view?.stopTasks(false); shutdownCodex(); if (this.view) { this.view.remember(); clearTimeout(this.view.saveTimer); this.saveSettings().catch(console.error); } }
+  onunload() { this.publicationPropertiesStopped = true; clearTimeout(this.calendarRefreshTimer); this.view?.stopTasks(false); shutdownCodex(); if (this.view) { this.view.remember(); clearTimeout(this.view.saveTimer); this.saveSettings().catch(console.error); } }
 
+  articleAllowed(file, explicit = false) {
+    const fm=file?(this.app.plugins?.plugins?.['trey-media']?.meta?.(file)||this.app.metadataCache?.getFileCache(file)?.frontmatter||{}):{};
+    return workspace.articleAllowed(file,fm,this.workspace||workspace.DEFAULTS,explicit);
+  }
   async activateView() {
     const ws = this.app.workspace;
     // Capture the note before opening/revealing the workbench changes the active leaf.
     const active = ws.getActiveViewOfType?.(MarkdownView)?.file || ws.getActiveFile?.();
-    const source = active?.extension === 'md' ? active : this.app.vault.getAbstractFileByPath(this.lastMarkdownPath || '');
-    if (source?.extension === 'md') this.lastMarkdownPath = source.path;
+    const source = this.articleAllowed(active, true) ? active : this.app.vault.getAbstractFileByPath(this.lastMarkdownPath || '');
+    if (this.articleAllowed(source)) this.lastMarkdownPath = source.path;
     let leaf = ws.getLeavesOfType(VIEW)[0];
     if (!leaf) leaf = ws.getLeaf('tab');
     await leaf.setViewState({ type: VIEW, active: true });
-    if (source?.extension === 'md' && leaf.view?.refreshForFile && !leaf.view.refreshForFile(source)) new Notice(t('当前任务进行中，结束后再切换文章'));
+    if (this.articleAllowed(source, true) && leaf.view?.refreshForFile && !leaf.view.refreshForFile(source)) new Notice(t('当前任务进行中，结束后再切换文章'));
     await ws.revealLeaf(leaf);
   }
+  defaultPlatformConfig(id) {
+    return publicationModel.clone(id === 'wechat' ? { ...DEFAULTS.wechat, ssh: { ...WECHAT_SSH_DEFAULTS } } : id === 'x' ? X_DEFAULTS : {});
+  }
+  platformConfig(id, accountId) {
+    if (!this.settings.channels) return this.settings[id] ||= this.defaultPlatformConfig(id);
+    const account = publicationModel.activeAccount(this.settings.channels, id, accountId);
+    if (account) return account.config;
+    this.unassignedConfigs ||= {};
+    return this.unassignedConfigs[id] ||= this.defaultPlatformConfig(id);
+  }
+  requirePlatformAccount(id) {
+    if (!this.settings.channels) return null;
+    const account = publicationModel.activeAccount(this.settings.channels, id);
+    if (!this.settings.channels.enabled[id] || !account) throw new Error(t('先启用平台并添加账号'));
+    return account;
+  }
+  refreshCalendarIndex() {
+    const channels = this.settings.channels, sources = channels?.calendarSources || [];
+    // Only inspect metadata for Markdown within explicitly selected folders.
+    const files = sources.length ? this.app.vault.getMarkdownFiles().filter(file => !workspace.privatePath(file.path, this.workspace) && sources.some(source => publicationModel.inCalendarFolder(file.path, source))).map(file => ({ path: file.path, basename: file.basename, frontmatter: this.app.metadataCache?.getFileCache(file)?.frontmatter })) : [];
+    this.calendarIndex = publicationModel.calendarFromMarkdown(files, sources, channels || { accounts: [] });
+    for (const path of this.publicationPropertyIssues?.keys() || []) if (!sources.some(source => publicationModel.inCalendarFolder(path, source)) || !this.app.vault.getAbstractFileByPath(path)) this.publicationPropertyIssues.delete(path);
+    this.calendarIndex.issues.push(...(this.publicationPropertyIssues?.values() || []));
+    return this.calendarIndex;
+  }
+  scheduleCalendarRefresh() {
+    clearTimeout(this.calendarRefreshTimer);
+    this.calendarRefreshTimer = setTimeout(() => {
+      this.refreshCalendarIndex();
+      if (this.view?.tab === 'calendar' && !this.view.viewClosed) this.view.renderBody();
+    }, 120);
+  }
+  watchPublicationFolders() {
+    const watched = file => (this.settings.channels?.calendarSources || []).some(source => file?.path === source.folder || publicationModel.inCalendarFolder(file?.path || '', source));
+    const changed = file => {
+      if (watched(file)) {
+        this.scheduleCalendarRefresh();
+        if (file?.extension === 'md') this.queuePublicationProperties(file);
+      }
+    };
+    if (this.app.metadataCache?.on) {
+      this.registerEvent(this.app.metadataCache.on('changed', changed));
+      this.registerEvent(this.app.metadataCache.on('resolved', () => { if (this.settings.channels?.calendarSources?.length) { this.scheduleCalendarRefresh(); this.fillPublicationFolders().catch(console.error); } }));
+    }
+    for (const event of ['create', 'modify', 'delete']) this.registerEvent(this.app.vault.on(event, changed));
+    this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
+      const sources = this.settings.channels?.calendarSources || [], relevant = watched(file) || watched({ path: oldPath });
+      let moved = false;
+      if (Array.isArray(file.children)) {
+        for (const source of sources) if (source.folder === oldPath || source.folder.startsWith(oldPath + '/')) { source.folder = file.path + source.folder.slice(oldPath.length); moved = true; }
+        if (moved) this.saveSettings().catch(console.error);
+      }
+      if (relevant || moved) { this.scheduleCalendarRefresh(); if (file.extension === 'md') this.queuePublicationProperties(file); else if (Array.isArray(file.children)) this.fillPublicationFolders(file.path).catch(console.error); }
+    }));
+  }
+  accountPublicationSource(id) {
+    const channels = this.settings.channels, account = channels.accounts.find(item => item.id === id);
+    if (!account || account.publicationFolder === '') return null;
+    const sources = channels.calendarSources || [];
+    return sources.find(source => source.id === account.publicationSourceId) || sources.find(source => source.accountId === id) || (channels.accounts.filter(item => item.platform === account.platform && !item.archived).length === 1 ? sources.find(source => source.platform === account.platform && !source.accountId) : null);
+  }
+  queuePublicationProperties(file) {
+    const notes=this.workspace?.notesDir||workspace.DEFAULTS.notesDir;
+    if(file?.path===notes||file?.path?.startsWith(notes+'/'))return Promise.resolve(false);
+    if (this.publicationPropertiesStopped || file?.extension !== 'md' || workspace.privatePath(file.path, this.workspace) || !this.app.fileManager?.processFrontMatter) return Promise.resolve(false);
+    const path = file.path;
+    this.publicationPropertyTasks ||= new Map(); this.publicationPropertyIssues ||= new Map();
+    if (this.publicationPropertyTasks.has(path)) return this.publicationPropertyTasks.get(path);
+    const run = async () => {
+      if (this.publicationPropertiesStopped || !this.app.vault.getAbstractFileByPath(file.path)) return false;
+      const sources = this.settings.channels.calendarSources || [], frontmatter = this.app.metadataCache?.getFileCache(file)?.frontmatter || {};
+      const owner = publicationModel.publicationPropertyOwner(file, frontmatter, sources, this.settings.channels);
+      if (!owner.account) {
+        if (owner.issue) this.publicationPropertyIssues.set(path, file.path + '：' + owner.issue); else this.publicationPropertyIssues.delete(path);
+        return false;
+      }
+      const patch = publicationModel.publicationPropertyPatch(frontmatter, file, owner.source, owner.account);
+      if (!Object.keys(patch).length) { this.publicationPropertyIssues.delete(path); return false; }
+      let changed = false;
+      await this.app.fileManager.processFrontMatter(file, current => {
+        // Resolve ownership and missing fields again inside the atomic write callback.
+        const fresh = publicationModel.publicationPropertyOwner(file, current, this.settings.channels.calendarSources || [], this.settings.channels);
+        if (!fresh.account) throw new Error(fresh.issue || '发布文件夹配置已改变');
+        const missing = publicationModel.publicationPropertyPatch(current, file, fresh.source, fresh.account);
+        publicationModel.applyPropertyPatch(current, missing); changed = Object.keys(missing).length > 0;
+      });
+      this.publicationPropertyIssues.delete(path); this.scheduleCalendarRefresh(); return changed;
+    };
+    const task = (this.publicationPropertyTail || Promise.resolve()).then(run).catch(() => {
+      if (this.app.vault.getAbstractFileByPath(file.path)) this.publicationPropertyIssues.set(path, file.path + '：自动补齐失败，请检查属性格式和文件写入权限');
+      this.scheduleCalendarRefresh(); return false;
+    }).finally(() => { this.publicationPropertyTasks.delete(path); });
+    this.publicationPropertyTasks.set(path, task); this.publicationPropertyTail = task; return task;
+  }
+  async fillPublicationFolders(folder) {
+    if (this.publicationPropertiesStopped || !this.app.fileManager?.processFrontMatter) return;
+    const sources = this.settings.channels?.calendarSources || [];
+    const files = sources.length ? this.app.vault.getMarkdownFiles().filter(file => !workspace.privatePath(file.path, this.workspace) && (!folder || file.path.startsWith(folder + '/')) && sources.some(source => source.autoProperties !== false && publicationModel.inCalendarFolder(file.path, source))) : [];
+    await Promise.all(files.map(file => this.queuePublicationProperties(file)));
+    this.refreshCalendarIndex();
+  }
+  async savePublicationAccount({ id, platform, name, folder = '', sourceId }) {
+    name = String(name || '').trim();
+    folder = String(folder || '');
+    if (!name) throw new Error(t('请填写账号名称'));
+    if (!publicationModel.platform(platform)) throw new Error(t('请选择平台'));
+    const account = id && this.settings.channels.accounts.find(item => item.id === id && item.platform === platform && !item.archived);
+    if (id && !account) throw new Error(t('请选择有效的发布账号'));
+    if (this.settings.channels.accounts.some(item => item.platform === platform && item.id !== id && !item.archived && item.name === name)) throw new Error(t('这个平台已有同名账号'));
+    const previousSource = sourceId ? this.settings.channels.calendarSources?.find(source => source.id === sourceId && source.platform === platform && (!source.accountId || source.accountId === id)) : id ? this.accountPublicationSource(id) : null;
+    const normalized = folder.trim() ? publicationModel.normalizeCalendarSource({ ...previousSource, platform, accountId: id || 'pending', folder, autoProperties: true }) : null;
+    if (normalized) {
+      if (workspace.privatePath(normalized.folder, this.workspace)) throw new Error('不能选择日记、公司或投资目录。');
+      const conflict = this.settings.channels.calendarSources?.find(source => source.id !== previousSource?.id && source.autoProperties !== false && source.folder === normalized.folder && (source.platform !== platform || (source.accountId && source.accountId !== id)));
+      if (conflict) throw new Error(t('这个发布文件夹已绑定其他账号，请为账号选择独立文件夹'));
+      const existing = this.app.vault.getAbstractFileByPath(normalized.folder);
+      if (existing && !Array.isArray(existing.children)) throw new Error(t('发布文件夹路径已被文件占用'));
+      if (!existing) await ensureFolder(this.app.vault.adapter, normalized.folder);
+    }
+    let result;
+    await this.updateChannels(next => {
+      if (next.accounts.some(item => item.platform === platform && item.id !== id && !item.archived && item.name === name)) throw new Error(t('这个平台已有同名账号'));
+      if (normalized && next.calendarSources?.some(source => source.id !== previousSource?.id && source.autoProperties !== false && source.folder === normalized.folder && (source.platform !== platform || (source.accountId && source.accountId !== id)))) throw new Error(t('这个发布文件夹已绑定其他账号，请为账号选择独立文件夹'));
+      result = id ? next.accounts.find(item => item.id === id) : publicationModel.addAccount(next, platform, name, this.defaultPlatformConfig(platform));
+      result.name = name; result.publicationFolder = normalized?.folder || '';
+      next.calendarSources ||= [];
+      if (normalized) {
+        const source = { ...normalized, accountId: result.id };
+        const index = next.calendarSources.findIndex(item => item.id === source.id);
+        if (index < 0) next.calendarSources.push(source); else next.calendarSources[index] = source;
+        result.publicationSourceId = source.id;
+      } else if (previousSource) {
+        next.calendarSources = next.calendarSources.filter(source => source.id !== previousSource.id); result.publicationSourceId = '';
+      }
+    });
+    if (normalized) await this.fillPublicationFolders(normalized.folder);
+    return result;
+  }
+  async saveCalendarSource(input) {
+    const source = publicationModel.normalizeCalendarSource(input);
+    const folder = this.app.vault.getAbstractFileByPath(source.folder);
+    if (!folder || !Array.isArray(folder.children)) throw new Error(t('发布文件夹不存在，请先选择已有文件夹'));
+    if (source.accountId && !this.settings.channels.accounts.some(account => account.id === source.accountId && account.platform === source.platform)) throw new Error(t('请选择有效的发布账号'));
+    await this.updateChannels(next => {
+      next.calendarSources ||= [];
+      if (next.calendarSources.some(item => item.id !== source.id && item.platform === source.platform && item.accountId === source.accountId && item.folder === source.folder)) throw new Error(t('这个文件夹已在监控，请修改原有设置'));
+      const index = next.calendarSources.findIndex(item => item.id === source.id);
+      if (index < 0) next.calendarSources.push(source); else next.calendarSources[index] = source;
+    });
+    await this.fillPublicationFolders(source.folder);
+    return source;
+  }
+  async removeCalendarSource(id) {
+    await this.updateChannels(next => { next.calendarSources = (next.calendarSources || []).filter(source => source.id !== id); });
+  }
+  async updateChannels(change) {
+    if (this.accountConnectionBusy || this.view?.busy || this.view?.operation) throw new Error(t('当前任务进行中，结束后再切换账号'));
+    const operation = async () => {
+      const previous = this.settings.channels, next = publicationModel.clone(previous);
+      change(next);
+      // Keep in-flight configuration references stable when editing labels or selection.
+      for (const account of next.accounts) {
+        const old = previous.accounts.find(item => item.id === account.id);
+        if (old && JSON.stringify(old.config) === JSON.stringify(account.config)) account.config = old.config;
+      }
+      this.settings.channels = next;
+      try { await this.saveSettings(); } catch (error) { this.settings.channels = previous; throw error; }
+      this.refreshCalendarIndex();
+    };
+    const result = (this.channelWrite || Promise.resolve()).then(operation);
+    this.channelWrite = result.catch(() => {}); return result;
+  }
+  async updatePublication(change) {
+    const operation = async () => {
+      const next = publicationModel.clone(this.publication), result = await change(next);
+      await this.app.vault.adapter.write(this.publicationPath, JSON.stringify(next, null, 2));
+      this.publication = next; return result;
+    };
+    const result = (this.publicationWrite || Promise.resolve()).then(operation);
+    this.publicationWrite = result.catch(() => {}); return result;
+  }
+  async recordPublication(input) {
+    return this.updatePublication(data => publicationModel.upsertRecord(data, this.settings.channels, input));
+  }
+  async savePlatformVariant(input) {
+    const account = publicationModel.activeAccount(this.settings.channels, input.platform, input.accountId);
+    if (!account || !this.settings.channels.enabled[input.platform]) throw new Error(t('请选择有效的发布账号'));
+    for (const image of input.images) {
+      const file = this.app.vault.getAbstractFileByPath(image);
+      if (!file || !/^(png|jpe?g|webp|gif)$/.test(file.extension)) throw new Error(t('图片未找到：') + image);
+    }
+    const id = input.id || require('crypto').randomUUID();
+    return this.updatePublication(async data => {
+      const previous = data.variants.find(item => item.id === id);
+      if (input.id && !previous) throw new Error(t('平台版本已不存在'));
+      const folder = normalizePath(this.settings.outputFolder + '/平台版本');
+      const record = { id, platform: input.platform, accountId: input.accountId, sourcePath: input.sourcePath, sourceHash: input.sourceHash, title: input.title, images: input.images, path: previous?.path || folder + '/' + id + '.md', updatedAt: new Date().toISOString() };
+      await ensureFolder(this.app.vault.adapter, folder);
+      const file = this.app.vault.getAbstractFileByPath(record.path);
+      if (file && input.expectedHash && publicationUI.fingerprint(await this.app.vault.read(file)) !== input.expectedHash) throw new Error(t('平台版本已在其他窗口修改，请重新打开后合并内容'));
+      if (file) await this.app.vault.modify(file, input.markdown);
+      else await this.app.vault.create(record.path, input.markdown);
+      if (previous) data.variants[data.variants.indexOf(previous)] = record; else data.variants.push(record);
+      return record;
+    });
+  }
+  async platformMarkdown(file, id, fallback) {
+    const account = publicationModel.activeAccount(this.settings.channels, id);
+    const variant = this.publication?.variants.find(item => item.sourcePath === file.path && item.accountId === account?.id);
+    if (!variant) return fallback;
+    const target = this.app.vault.getAbstractFileByPath(variant.path);
+    if (!target) throw new Error(t('平台版本文件已不存在，请重新保存平台版本'));
+    let markdown = await this.app.vault.read(target);
+    for (const image of variant.images || []) if (!markdown.includes(image)) markdown += '\n\n![[' + image + ']]';
+    return markdown;
+  }
   activeConnection(kind) { return this.services.selected(this.settings, kind); }
+  /* 润色版本按文章分文件保存在插件目录：<库>/.obsidian/plugins/banana-studio/polish/<hash>.json */
+  polishVersionFile(articlePath) {
+    const base = this.app.vault.adapter.getBasePath?.();
+    if (!base || !articlePath) return '';
+    return this.polish.versionFile(path.join(base, this.app.vault.configDir, 'plugins', this.manifest.id, 'polish'), articlePath);
+  }
   async setLanguage(language) {
     if (!['auto', 'zh', 'en'].includes(language)) return;
     if (this.view?.busy || this.view?.coverChatBusy || this.view?.insertingFigures) throw new Error(t('请在当前任务结束后切换语言'));
@@ -3507,8 +4155,7 @@ module.exports = class BananaStudioPlugin extends Plugin {
     services[kind + 'Id'] = id;
     try { await this.saveSettings(); } catch (e) { services[kind + 'Id'] = previous; throw e; }
   }
-  async wechatSecret() {
-    const cfg = this.settings.wechat || {};
+  async wechatSecret(cfg = this.platformConfig('wechat')) {
     if (!String(cfg.appId || '').trim()) throw new Error(t('请先在设置中填写公众号 AppID'));
     if (!cfg.secretId) throw new Error(t('请先在设置中保存公众号 AppSecret'));
     const key = this.readWechatSecret(cfg.secretId, 'AppSecret');
@@ -3516,6 +4163,21 @@ module.exports = class BananaStudioPlugin extends Plugin {
     return key;
   }
   /* 把一段敏感值存进系统密钥串，holder[key] 只保存引用 id；value 为空即清除。 */
+  /* Obsidian 密钥串 ID 只允许小写字母、数字、连字符，且不超过 64 字符；放不下完整标签时用标签摘要。 */
+  wechatSecretId(label) {
+    const crypto = require('crypto');
+    const prefix = 'banana-studio-wechat-';
+    const uuid = crypto.randomUUID();
+    const room = Math.max(1, 64 - prefix.length - 1 - uuid.length);
+    const clean = String(label || '').replace(/[^a-z0-9-]/g, '');
+    const tag = clean.length <= room ? clean : crypto.createHash('sha256').update(clean).digest('hex').slice(0, room);
+    return prefix + tag + '-' + uuid;
+  }
+  /* Obsidian 的 secretStorage.deleteSecret 是同步方法、返回布尔值；把返回值再链式调用 catch 会抛 TypeError。 */
+  deleteStoredSecret(id) {
+    if (!id) return;
+    try { this.app.secretStorage?.deleteSecret?.(id); } catch (error) { /* 密钥串不可用时忽略 */ }
+  }
   ensureWechatSecretStorage() {
     if (!this.app.secretStorage) throw new Error(t('当前 Obsidian 不支持系统密钥串存储，无法保存密钥：请把 Obsidian 升级到 1.11.4 或更高版本'));
   }
@@ -3527,24 +4189,27 @@ module.exports = class BananaStudioPlugin extends Plugin {
   }
   async storeWechatSecret(holder, key, value, label) {
     this.ensureWechatSecretStorage();
-    if (holder[key]) await this.app.secretStorage?.deleteSecret?.(holder[key]).catch(() => {});
+    this.deleteStoredSecret(holder[key]);
     holder[key] = '';
     const secret = String(value || '').trim();
     if (secret) {
-      holder[key] = 'banana-studio-wechat-' + label + '-' + require('crypto').randomUUID();
+      holder[key] = this.wechatSecretId(label);
       await this.app.secretStorage.setSecret(holder[key], secret);
     }
     await this.saveSettings();
   }
-  async saveWechatSecret(secret) { return this.storeWechatSecret(this.settings.wechat ||= {}, 'secretId', secret, 'appsecret'); }
+  async saveWechatSecret(secret) { return this.storeWechatSecret(this.platformConfig('wechat'), 'secretId', secret, 'appsecret'); }
   publishRelayOrigin(value) {
     const url = new URL(value);
     if (url.username || url.password || url.search || url.hash || (url.pathname !== '/' && url.pathname !== '')) throw new Error(t('请填写服务器根地址'));
     if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname))) throw new Error(t('跨设备连接需要 HTTPS'));
     return url.origin;
   }
+  publishRelayConfig() {
+    return this.settings.channels ? (this.platformConfig('wechat').publishRelay ||= {}) : (this.settings.publishRelay ||= {});
+  }
   async browserRelayRequest(route, body, override) {
-    const cfg = override || this.settings.publishRelay || {};
+    const cfg = override || this.publishRelayConfig();
     const url = this.publishRelayOrigin(cfg.url);
     const token = cfg.token || this.readWechatSecret(cfg.secretId, t('发布设备密钥'));
     if (!token && route !== '/v1/pair') throw new Error(t('请先连接发布服务器'));
@@ -3555,52 +4220,51 @@ module.exports = class BananaStudioPlugin extends Plugin {
   }
   async pairPublishRelay(value, code) {
     this.ensureWechatSecretStorage();
+    const holder = this.settings.channels ? this.platformConfig('wechat') : this.settings;
     const url = this.publishRelayOrigin(value);
     const result = await this.browserRelayRequest('/v1/pair', { code }, { url });
     if (result.device?.role !== 'producer' || !result.token) throw new Error(t('请使用 Obsidian 的 producer 配对码'));
-    const previous = this.settings.publishRelay, secretId = 'banana-studio-publish-relay-' + require('crypto').randomUUID();
+    const previous = holder.publishRelay, secretId = this.wechatSecretId('publish-relay');
     await this.app.secretStorage.setSecret(secretId, result.token);
-    this.settings.publishRelay = { url, secretId, producerId: result.device.id, jobs: previous?.url === url ? previous.jobs || [] : [] };
+    holder.publishRelay = { url, secretId, producerId: result.device.id, jobs: previous?.url === url ? previous.jobs || [] : [] };
     try { await this.saveSettings(); }
-    catch (error) { this.settings.publishRelay = previous; await this.app.secretStorage.deleteSecret(secretId).catch(() => {}); throw error; }
-    if (previous?.secretId) await this.app.secretStorage.deleteSecret(previous.secretId).catch(() => {});
+    catch (error) { holder.publishRelay = previous; this.deleteStoredSecret(secretId); throw error; }
+    if (previous?.secretId) this.deleteStoredSecret(previous.secretId);
   }
   async refreshBrowserJob(record) {
-    if (record.server !== this.settings.publishRelay?.url || record.producerId !== this.settings.publishRelay?.producerId) throw new Error(t('此任务属于之前的服务器或设备配对'));
+    if (record.server !== this.publishRelayConfig().url || record.producerId !== this.publishRelayConfig().producerId) throw new Error(t('此任务属于之前的服务器或设备配对'));
     const { job } = await this.browserRelayRequest('/v1/jobs/' + record.id);
     Object.assign(record, { status: job.status, url: job.url || '', error: job.error || '' });
     await this.saveSettings();
   }
   /* SSH 中转的连接原料：设置里的明文字段 + 密钥串里的密码/私钥/口令。 */
-  wechatSshRaw() {
-    const ssh = this.settings.wechat?.ssh || {};
+  wechatSshRaw(cfg = this.platformConfig('wechat')) {
+    const ssh = cfg.ssh || {};
     return { host: ssh.host, port: ssh.port, username: ssh.username, password: this.readWechatSecret(ssh.passwordSecretId, 'SSH 密码'), privateKey: ssh.keySecretId ? this.readWechatSecret(ssh.keySecretId, 'SSH 私钥') : ssh.keyPath, passphrase: this.readWechatSecret(ssh.passphraseSecretId, '私钥口令'), hostKeyFingerprint: ssh.hostKeyFingerprint };
   }
-  wechatRelayConfigured() { const ssh = this.settings.wechat?.ssh; return !!(ssh?.enabled && String(ssh.host || '').trim()); }
+  wechatRelayConfigured(cfg = this.platformConfig('wechat')) { const ssh = cfg.ssh; return !!(ssh?.enabled && String(ssh.host || '').trim()); }
   /* 配置了 SSH 服务器时返回隧道传输函数，供 WechatClient 取 token 使用；首次连接顺带记住服务器指纹。 */
-  wechatRelay() {
-    if (!this.wechatRelayConfigured()) return null;
+  wechatRelay(cfg = this.platformConfig('wechat')) {
+    if (!this.wechatRelayConfigured(cfg)) return null;
     return async (url, options) => {
-      const response = await this.sshRelay.tunnelRequest(this.wechatSshRaw(), url, options);
-      await this.rememberSshFingerprint(response.hostKeyFingerprint);
+      const response = await this.sshRelay.tunnelRequest(this.wechatSshRaw(cfg), url, options);
+      await this.rememberSshFingerprint(response.hostKeyFingerprint, cfg);
       return response;
     };
   }
-  async rememberSshFingerprint(fingerprint) {
-    const ssh = this.settings.wechat?.ssh;
+  async rememberSshFingerprint(fingerprint, cfg = this.platformConfig('wechat')) {
+    const ssh = cfg.ssh;
     if (ssh && fingerprint && !ssh.hostKeyFingerprint) { ssh.hostKeyFingerprint = fingerprint; await this.saveSettings(); }
   }
-  async xCredentials() {
-    const cfg = this.settings.x ||= {};
+  async xCredentials(cfg = this.platformConfig('x')) {
     const secret = id => (id ? this.app.secretStorage?.getSecret(id) : '') || '';
     if (cfg.auth === 'oauth2') {
-      return { auth: 'oauth2', clientId: String(cfg.clientId || '').trim(), clientSecret: secret(cfg.oauth2SecretId), accessToken: secret(cfg.oauth2AccessId), refreshToken: secret(cfg.oauth2RefreshId), expiresAt: Number(cfg.tokenExpiresAt) || 0, onTokens: tokens => this.xPersistTokens(tokens) };
+      return { auth: 'oauth2', clientId: String(cfg.clientId || '').trim(), clientSecret: secret(cfg.oauth2SecretId), accessToken: secret(cfg.oauth2AccessId), refreshToken: secret(cfg.oauth2RefreshId), expiresAt: Number(cfg.tokenExpiresAt) || 0, onTokens: tokens => this.xPersistTokens(tokens, cfg) };
     }
     return { auth: 'oauth1', consumerKey: String(cfg.consumerKey || '').trim(), consumerSecret: secret(cfg.consumerSecretId), accessToken: secret(cfg.accessTokenId), accessTokenSecret: secret(cfg.accessTokenSecretId) };
   }
   /* OAuth 2.0 令牌持久化：access/refresh 都进系统密钥串，过期时间进设置。 */
-  async xPersistTokens(tokens) {
-    const cfg = this.settings.x ||= {};
+  async xPersistTokens(tokens, cfg = this.platformConfig('x')) {
     await this.storeWechatSecret(cfg, 'oauth2AccessId', tokens.accessToken, 'x-oauth2-access');
     if (tokens.refreshToken) await this.storeWechatSecret(cfg, 'oauth2RefreshId', tokens.refreshToken, 'x-oauth2-refresh');
     cfg.tokenExpiresAt = Date.now() + tokens.expiresIn * 1000;
@@ -3608,12 +4272,15 @@ module.exports = class BananaStudioPlugin extends Plugin {
   }
   /* 连接 X 账号（OAuth 2.0）：本地起回调服务 → 浏览器授权 → 30 秒内换令牌 → 记录账号。 */
   async xConnectOAuth2() {
-    const cfg = this.settings.x ||= {};
+    if (this.accountConnectionBusy) throw new Error(t('账号正在连接，请稍候'));
+    this.accountConnectionBusy = true;
+    try {
+    const cfg = this.platformConfig('x');
     const clientId = String(cfg.clientId || '').trim();
     if (!clientId) throw new Error(t('请先填写 Client ID'));
     const clientSecret = (cfg.oauth2SecretId ? this.app.secretStorage?.getSecret(cfg.oauth2SecretId) : '') || '';
     if (!clientSecret) throw new Error(t('请先保存 Client Secret'));
-    const request = this.xTransport() || this.services.request;
+    const request = this.xTransport(cfg) || this.services.request;
     const port = 8765;
     const redirectUri = 'http://127.0.0.1:' + port + '/callback';
     const state = require('crypto').randomBytes(16).toString('hex');
@@ -3623,14 +4290,14 @@ module.exports = class BananaStudioPlugin extends Plugin {
     window.open(this.xOauth2.authUrl({ clientId, redirectUri, state, challenge }));
     const { code } = await pending.promise;
     const tokens = await this.xOauth2.exchangeCode({ code, verifier, clientId, clientSecret, redirectUri, request });
-    await this.xPersistTokens(tokens);
-    const me = await (await this.xClient()).me();
-    cfg.user = me.username; await this.saveSettings(); this.display();
+    await this.xPersistTokens(tokens, cfg);
+    const me = await new this.xClientMod.XClient(await this.xCredentials(cfg), undefined, this.xTransport(cfg)).me();
+    cfg.user = me.username; await this.saveSettings(); this.settingsTab?.display();
     new Notice(t('已连接 @{user}（{name}）', { user: me.username, name: me.name || me.username }), 6000);
+    } finally { this.accountConnectionBusy = false; }
   }
   /* X 的网络出口：直连 / HTTP 代理（Clash 等）/ 复用公众号页配置的 SSH 隧道。 */
-  xTransport() {
-    const cfg = this.settings.x ||= {};
+  xTransport(cfg = this.platformConfig('x')) {
     if (cfg.network === 'proxy') {
       const proxy = this.netProxy.normalizeProxyUrl(cfg.proxyUrl);
       if (!proxy) throw new Error(t('请先在 X 设置中填写代理地址'));
@@ -3642,6 +4309,10 @@ module.exports = class BananaStudioPlugin extends Plugin {
     }
     return null;
   }
-  async xClient() { return new this.xClientMod.XClient(await this.xCredentials(), undefined, this.xTransport()); }
-  async saveSettings() { await this.saveData(this.settings); }
+  async xClient(accountId) { const cfg = this.platformConfig('x', accountId); return new this.xClientMod.XClient(await this.xCredentials(cfg), undefined, this.xTransport(cfg)); }
+  async saveSettings() {
+    const snapshot = publicationModel.clone(this.settings);
+    const result = (this.settingsWrite || Promise.resolve()).then(() => this.saveData(snapshot));
+    this.settingsWrite = result.catch(() => {}); return result;
+  }
 };
