@@ -39,14 +39,14 @@ function load(filename, expose=false) {
     return local(id);
   };
   let source=fs.readFileSync(filename,'utf8');
-  if(expose) source+='\nmodule.exports.testHooks = {readGeneratedImage,BDView,TemplateLibraryModal,CoverConfigModal,TemplateManagerModal,PromptTemplateEditor,updateTemplateSettings,imageFolder,outputRules,createOutputTask,outputImageName,promptTemplates,templateChoices,figureRecipe,renderFigureRecipe,renderTemplatePrompt,templateLabel,PLATFORMS,FIGURE_SIZES,PALETTES,RENDERINGS,MODULES};';
+  if(expose) source+='\nmodule.exports.testHooks = {readGeneratedImage,BDView,TemplateLibraryModal,CoverConfigModal,PolishRoleModal,TemplateManagerModal,PromptTemplateEditor,updateTemplateSettings,imageFolder,outputRules,createOutputTask,outputImageName,promptTemplates,templateChoices,figureRecipe,renderFigureRecipe,renderTemplatePrompt,templateLabel,PLATFORMS,FIGURE_SIZES,PALETTES,RENDERINGS,MODULES};';
   vm.runInNewContext(source,{module:mod,exports:mod.exports,require:safeRequire,Buffer,URL,Blob,process,console,setTimeout,clearTimeout,AbortController,requestAnimationFrame(){},document:{getElementById:()=>null}},{filename});
   return mod.exports;
 }
 const sourcePlugin=load(path.join(root,'src/main.js'),true);
 const hooks=sourcePlugin.testHooks;
 function flowNode(options={}) {
-  const node={text:options.text||'',children:[],attrs:{...options.attr},value:'',isConnected:true,setAttribute(k,v){this.attrs[k]=v;},empty(){this.children=[];},addClass(){}};
+  const node={text:options.text||'',children:[],attrs:{...options.attr},value:'',isConnected:true,setAttribute(k,v){this.attrs[k]=v;},empty(){this.children=[];},addClass(){},removeClass(){}};
   for(const method of ['createEl','createDiv','createSpan']) node[method]=(...args)=>{const opts=method==='createEl'?(args[1]||{}):(typeof args[0]==='object'?args[0]:{});const child=flowNode(opts);node.children.push(child);return child;};
   return node;
 }
@@ -89,6 +89,40 @@ test('task setup modal groups template, canvas text, models and count',()=>{
   assert.match(text,/Selected service · chosen-model/);assert.match(text,/生成张数/);assert.match(text,/3 张/);assert.match(text,/完成/);
   assert.equal(typeof view.configModalRefresh,'function');
   modal.onClose();assert.equal(view.configModalRefresh,null);
+});
+test('polish role dialog keeps several skill files and allows skills without a prompt',async()=>{
+  i18n.configureLocale(()=>'zh');
+  const polish=require('../src/polish/polish.js');
+  let saved=0,closed=0;
+  const plugin={polish,saveSettings:async()=>{saved++;}};
+  const role={id:'mine',name:'去 AI 味',prompt:'',skillPath:'~/skills/旧格式/SKILL.md',skills:['~/skills/去ai味/SKILL.md']};
+  const modal=new hooks.PolishRoleModal({},plugin,role,{});
+  modal.titleEl={setText(){}}; modal.modalEl=flowNode(); modal.contentEl=flowNode(); modal.close=()=>{closed++;};
+  modal.onOpen();
+  const all=n=>[n,...n.children.flatMap(all)];
+  const button=(root,label)=>all(root).find(n=>typeof n.onclick==='function'&&flowText(n).trim()===label);
+  const nodes=all(modal.contentEl),text=flowText(modal.contentEl);
+  assert.match(text,/技能文件（可多选）/);
+  assert.match(text,/~\/skills\/去ai味\/SKILL\.md/);
+  assert.match(text,/旧格式/,'旧版 skillPath 也要列出来');
+  assert.ok(!/还没有技能文件/.test(text));
+  const input=nodes.find(n=>n.attrs.placeholder==='~/.agents/skills/xxx/SKILL.md');
+  input.value='~/skills/精简/SKILL.md';
+  await button(modal.contentEl,'添加路径').onclick();
+  assert.match(flowText(modal.contentEl),/精简\/SKILL\.md/);
+  await button(modal.contentEl,'保存').onclick();
+  assert.equal(saved,1);assert.equal(closed,1);
+  assert.equal(role.skills.join('|'),'~/skills/去ai味/SKILL.md|~/skills/旧格式/SKILL.md|~/skills/精简/SKILL.md','旧格式与新增路径都保存，且不重复');
+  assert.equal('skillPath' in role,false,'保存后改用 skills 列表');
+  assert.equal(role.prompt,'');
+  const blocked={id:'x',name:'空角色',prompt:'  ',skills:[]};
+  const empty=new hooks.PolishRoleModal({},plugin,blocked,{});
+  empty.titleEl={setText(){}}; empty.modalEl=flowNode(); empty.contentEl=flowNode(); empty.close=()=>{closed++;};
+  empty.onOpen();
+  assert.match(flowText(empty.contentEl),/还没有技能文件/);
+  await button(empty.contentEl,'保存').onclick();
+  assert.equal(saved,1,'没有提示词也没有技能文件时不保存');
+  assert.equal(closed,1);
 });
 test('global history includes both modes across articles and uses current unsaved results',()=>{
   const files=new Map(['Old.md','Current.md','old.png','manual.png','live.png'].map(path=>[path,{path,extension:path.endsWith('.md')?'md':'png'}]));

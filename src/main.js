@@ -2424,9 +2424,11 @@ class BDView extends ItemView {
     if (this.polishBusy || this.busy || this.coverChatBusy || this.insertingFigures || !this.activeFile() || this.tab !== 'polish') return;
     const { role } = this.polishState();
     if (!role) throw new Error(t('请先在设置 → 润色里配置至少一个角色'));
-    let skillText = '';
-    if (role.skillPath) {
-      try { skillText = await this.plugin.polish.readSkill(role.skillPath); }
+    if (!this.plugin.polish.roleReady(role)) throw new Error(t('请为这个角色填写提示词或添加技能文件'));
+    const skillPaths = this.plugin.polish.roleSkills(role);
+    let skillTexts = [];
+    if (skillPaths.length) {
+      try { skillTexts = await this.plugin.polish.readSkills(skillPaths); }
       catch (error) { new Notice(t('读取技能文件失败：') + error.message, 9000); return; }
     }
     const selected = this.polishSelectedVersion();
@@ -2438,7 +2440,7 @@ class BDView extends ItemView {
       const { front, body } = this.plugin.polish.splitFrontmatter(raw);
       const article = selected ? selected.text : body;
       if (!article.trim()) throw new Error(t('文章正文是空的'));
-      const { system, user } = this.plugin.polish.buildPolishMessages({ article, role, skillText, instruction: this.polishInstruction, title: this.title || articleTitle(this.app, f) });
+      const { system, user } = this.plugin.polish.buildPolishMessages({ article, role, skillTexts, instruction: this.polishInstruction, title: this.title || articleTitle(this.app, f) });
       this.progress = t('正在等待模型返回，通常需要几十秒…'); this.renderBody();
       const reply = await this.plugin.text(job.connections.text, system, user, signal); checkStopped(signal);
       const text = this.plugin.polish.cleanPolished(reply);
@@ -2507,7 +2509,10 @@ class BDView extends ItemView {
     select.disabled = this.polishBusy;
     select.onchange = async () => { this.plugin.settings.polish.roleId = select.value; await this.plugin.saveSettings(); this.renderBody(); };
     this.button(row, t('管理角色'), () => this.openPolishSettings(), 'bd-btn', 'settings').disabled = this.polishBusy;
-    if (role?.skillPath) section.createDiv({ cls: 'bd-wechat-hint', text: t('技能文件：') + role.skillPath });
+    const skillPaths = this.plugin.polish.roleSkills(role);
+    if (skillPaths.length) section.createDiv({ cls: 'bd-wechat-hint', text: t('技能文件：') + skillPaths.join('、') });
+    if (!this.plugin.polish.roleReady(role)) section.createDiv({ cls: 'bd-wechat-hint', text: t('这个角色还没有提示词或技能文件，请到「设置 → 润色」补充。') });
+    else if (!skillPaths.length) section.createDiv({ cls: 'bd-wechat-hint', text: t('角色提示词在「设置 → 润色」里编辑；也可以给角色添加技能文件。') });
     else section.createDiv({ cls: 'bd-wechat-hint', text: t('角色提示词在「设置 → 润色」里编辑；填技能文件路径可以直接调用本地 skill。') });
     const inputSec = this.section(fields, t('补充要求（可选）'));
     const area = inputSec.createEl('textarea', { cls: 'bd-input bd-polish-instruction', attr: { rows: '3', 'aria-label': t('补充要求'), placeholder: t('例如：只改前三段、保留小标题、压到 800 字以内') } });
@@ -3366,6 +3371,7 @@ class PolishRoleModal extends Modal {
   constructor(app, plugin, role, options = {}) {
     super(app);
     this.plugin = plugin; this.role = role; this.options = options; this.saved = false;
+    this.skills = plugin.polish.roleSkills(role);
   }
   onOpen() {
     this.modalEl?.addClass('bd-role-modal-shell');
@@ -3379,28 +3385,64 @@ class PolishRoleModal extends Modal {
     };
     const nameInput = field(t('角色名称')).createEl('input', { cls: 'bd-settings-input', attr: { type: 'text', placeholder: t('例如：去 AI 味') } });
     nameInput.value = this.role.name || '';
-    const promptInput = field(t('角色提示词'), t('写清改什么、保留什么；文章正文会附在后面一起发给模型。')).createEl('textarea', { cls: 'bd-settings-input is-mono bd-settings-textarea', attr: { rows: '8' } });
+    const promptInput = field(t('角色提示词'), t('写清改什么、保留什么；可以留空，只使用技能文件。')).createEl('textarea', { cls: 'bd-settings-input is-mono bd-settings-textarea', attr: { rows: '8' } });
     promptInput.value = this.role.prompt || '';
-    const skillInput = field(t('技能文件（可选）'), t('本地文件路径，例如 ~/.agents/skills/去ai味/SKILL.md，内容作为提示词的一部分。')).createEl('input', { cls: 'bd-settings-input is-mono', attr: { type: 'text', placeholder: '~/.agents/skills/xxx/SKILL.md' } });
-    skillInput.value = this.role.skillPath || '';
+    const skillsField = field(t('技能文件（可多选）'), t('本地 Markdown 文件，可以添加多个；内容会按顺序放进提示词。'));
+    const skillList = skillsField.createDiv('bd-role-skill-list');
+    const drawSkills = () => {
+      skillList.empty();
+      if (!this.skills.length) { skillList.createDiv({ cls: 'bd-role-skill-empty', text: t('还没有技能文件') }); return; }
+      for (const target of [...this.skills]) {
+        const row = skillList.createDiv('bd-role-skill');
+        row.createSpan({ cls: 'bd-role-skill-path', text: target });
+        const remove = row.createEl('button', { cls: 'bd-settings-button', attr: { type: 'button', 'aria-label': t('移除') + '：' + target } });
+        remove.createSpan({ text: t('移除') });
+        remove.onclick = () => { this.skills = this.skills.filter(item => item !== target); drawSkills(); };
+      }
+    };
+    drawSkills();
+    const skillActions = skillsField.createDiv('bd-role-skill-actions');
+    const addFile = skillActions.createEl('button', { cls: 'bd-settings-button', attr: { type: 'button' } });
+    addFile.createSpan({ text: t('选择文件…') });
+    addFile.onclick = () => this.pickFiles(drawSkills);
+    const manualInput = skillActions.createEl('input', { cls: 'bd-settings-input is-mono', attr: { type: 'text', placeholder: '~/.agents/skills/xxx/SKILL.md' } });
+    this.modalButton(skillActions, t('添加路径'), () => {
+      const target = manualInput.value.trim();
+      if (!target) throw new Error(t('请先填写技能文件路径'));
+      if (!this.skills.includes(target)) this.skills.push(target);
+      manualInput.value = ''; drawSkills();
+    });
     const footer = root.createDiv('bd-settings-footer');
     this.modalButton(footer, t('检查文件'), async () => {
-      const target = skillInput.value.trim();
-      if (!target) throw new Error(t('请先填写技能文件路径'));
-      const text = await this.plugin.polish.readSkill(target);
-      new Notice(t('已读取技能文件：{n} 字', { n: text.length }), 6000);
+      if (!this.skills.length) throw new Error(t('请先添加技能文件'));
+      const texts = await this.plugin.polish.readSkills(this.skills);
+      new Notice(t('已读取技能文件：{n} 个，共 {c} 字', { n: this.skills.length, c: texts.reduce((sum, text) => sum + text.length, 0) }), 6000);
     });
     footer.createDiv({ cls: 'bd-role-modal-gap' });
     this.modalButton(footer, t('取消'), () => { this.saved = false; this.close(); });
     this.modalButton(footer, t('保存'), async () => {
+      if (!promptInput.value.trim() && !this.skills.length) throw new Error(t('请填写角色提示词，或添加至少一个技能文件'));
       this.role.name = nameInput.value.trim().slice(0, 24) || t('未命名角色');
       this.role.prompt = promptInput.value;
-      this.role.skillPath = skillInput.value.trim();
+      this.role.skills = [...this.skills];
+      delete this.role.skillPath;
       await this.plugin.saveSettings();
       this.saved = true;
       new Notice(t('已保存角色：') + this.role.name);
       this.close();
     }, true);
+  }
+  /* 技能文件常在笔记库外（例如 ~/.agents/skills），用系统文件选择框；Electron 下能拿到绝对路径。 */
+  pickFiles(done) {
+    const input = document.createElement('input');
+    input.type = 'file'; input.multiple = true; input.accept = '.md,.markdown,.txt';
+    input.onchange = () => {
+      const picked = Array.from(input.files || []).map(file => file.path).filter(Boolean);
+      if (!picked.length) { new Notice(t('没有取得所选文件的路径，请在输入框里手动填写'), 8000); return; }
+      for (const target of picked) if (!this.skills.includes(target)) this.skills.push(target);
+      done();
+    };
+    input.click();
   }
   modalButton(parent, text, callback, primary = false) {
     const b = parent.createEl('button', { cls: 'bd-settings-button' + (primary ? ' is-primary' : ''), attr: { type: 'button' } });
@@ -3719,16 +3761,19 @@ class BDSettingTab extends PluginSettingTab {
     const polish = this.plugin.settings.polish ||= {};
     const roles = this.plugin.polish.ensureRoles(polish);
     const intro = this.group(body, t('文章润色')).body;
-    intro.createDiv({ cls: 'bd-settings-description', text: t('每个角色是一套提示词。工作台「润色」页选角色后，文章正文会交给构思模型改稿，结果存成版本，可以预览、应用和回退。') });
-    intro.createDiv({ cls: 'bd-settings-description', text: t('技能文件填本地 Markdown 的绝对路径（支持 ~/ 开头），文件内容会一起作为提示词，比如你自己的「去 AI 味」skill。') });
+    intro.createDiv({ cls: 'bd-settings-description', text: t('每个角色是一套提示词，可以再挂多个技能文件。工作台「润色」页选角色后，文章正文会交给构思模型改稿，结果存成版本，可以预览、应用和回退。') });
+    intro.createDiv({ cls: 'bd-settings-description', text: t('技能文件填本地 Markdown 的绝对路径（支持 ~/ 开头），可以添加多个，内容会按顺序一起作为提示词；只选技能、不写提示词也可以润色。') });
     const list = this.group(body, t('润色角色'), 'bd-polish-roles').body;
     const rows = list.createDiv('bd-role-list');
     for (const role of roles) {
       const row = rows.createDiv('bd-role-row' + (polish.roleId === role.id ? ' is-current' : ''));
       const info = row.createDiv('bd-role-info');
       info.createDiv({ cls: 'bd-role-name', text: role.name || t('未命名角色') });
-      const meta = [t('提示词 {n} 字', { n: String(role.prompt || '').length })];
-      if (role.skillPath) meta.push(t('技能文件'));
+      const meta = [];
+      const promptLength = String(role.prompt || '').trim().length;
+      meta.push(promptLength ? t('提示词 {n} 字', { n: String(promptLength) }) : t('无提示词'));
+      const skillCount = this.plugin.polish.roleSkills(role).length;
+      if (skillCount) meta.push(t('技能 {n} 个', { n: skillCount }));
       if (role.builtin) meta.push(t('内置'));
       if (polish.roleId === role.id) meta.push(t('当前使用'));
       info.createDiv({ cls: 'bd-role-meta', text: meta.join(' · ') });
@@ -3744,7 +3789,7 @@ class BDSettingTab extends PluginSettingTab {
     }
     const actions = list.createDiv('bd-settings-footer');
     this.button(actions, t('新增角色'), () => {
-      const role = { id: 'role-' + Date.now().toString(36), name: t('新角色'), prompt: '', skillPath: '' };
+      const role = { id: 'role-' + Date.now().toString(36), name: t('新角色'), prompt: '', skills: [] };
       polish.roles.push(role);
       this.openPolishRoleModal(role, { adding: true });
     }, true, 'plus');

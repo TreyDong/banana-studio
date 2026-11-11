@@ -1,5 +1,5 @@
 /* Banana Design — interface rules are defined in DESIGN.md. */
-.bd-root,.bd-settings,.bd-template-library-modal,.bd-publication-form,.bd-cover-config-modal {
+.bd-root,.bd-settings,.bd-template-library-modal,.bd-publication-form,.bd-cover-config-modal,.bd-role-modal {
   --bd-paper:var(--background-primary);
   --bd-ink:var(--text-normal);
   --bd-muted:var(--text-muted);
@@ -691,5 +691,11 @@
 .bd-role-modal h3 { margin:0 0 14px; font-size:1.1em; }
 .bd-modal-field { display:flex; flex-direction:column; gap:6px; margin:14px 0; }
 .bd-role-modal .bd-settings-textarea { min-height:140px; }
+.bd-role-skill-list { display:flex; flex-direction:column; gap:6px; }
+.bd-role-skill { display:flex; align-items:center; gap:10px; padding:7px 10px; border:1px solid var(--bd-line); border-radius:var(--bd-radius-control); background:var(--bd-surface); }
+.bd-role-skill-path { flex:1; min-width:0; font-family:var(--bd-font-meta); font-size:var(--bd-font-meta); color:var(--bd-ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.bd-role-skill-empty { padding:10px 12px; border:1px dashed var(--bd-line); border-radius:var(--bd-radius-control); color:var(--bd-muted); font-size:var(--bd-font-meta); }
+.bd-role-skill-actions { display:flex; align-items:center; gap:8px; margin-top:8px; flex-wrap:wrap; }
+.bd-role-skill-actions .bd-settings-input { flex:1; min-width:200px; }
 .bd-role-modal .bd-settings-footer { position:sticky; bottom:0; background:var(--background-primary,var(--bd-paper)); padding:12px 0 4px; }
 .bd-role-modal-gap { flex:1; }
