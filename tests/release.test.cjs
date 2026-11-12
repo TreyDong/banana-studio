@@ -68,7 +68,7 @@ test('the cover composer stays a clean chat and locks the task settings entry',(
   i18n.configureLocale(()=>'zh');
   const view=flowView({coverChat:[],coverChatDraft:'',coverCount:2,coverBatch:[],plugin:{settings:{},activeConnection:()=>({name:'Selected service',model:'chosen-model'})},templatePickerLabel:()=> 'Style',canGenerateCover:()=>true});
   const panel=flowNode(),fields=flowNode();view.renderCoverConversation(panel,fields);
-  assert.match(flowText(panel),/任务配置/);assert.match(flowText(panel),/新封面/);assert.match(flowText(fields),/任务配置」里调整/);
+  assert.match(flowText(panel),/任务配置/);assert.ok(!/新封面/.test(flowText(panel)),'the composer no longer shows a cover scope label');assert.match(flowText(fields),/任务配置」里调整/);
   assert.ok(!/Style/.test(flowText(panel)),'template settings move into the modal instead of crowding the composer');
   function all(n){return [n,...n.children.flatMap(all)];}
   const config=all(panel).find(n=>/任务配置/.test(n.attrs['aria-label']||''));
@@ -257,7 +257,7 @@ test('workflow navigation remembers each section and preserves drafts, plans and
   const groups=new Map(),drafts={coverChatDraft:'Keep my brief',figurePlan:{id:'plan',phase:'draft'},xTweets:[{text:'Edited tweet'}]};let focus;
   const view={...drafts,tab:'cover',createTab:'cover',publishTab:'article',renderTabGroup(parent,items,active,cls,label,select){groups.set(cls,{items,active,select});},contentEl:{querySelector(selector){focus=selector;return {focus(){}};}},navigateTab:hooks.BDView.prototype.navigateTab,renderArticlePicker:hooks.BDView.prototype.renderArticlePicker,activeFile:()=>null,button(){return {attrs:{},setAttribute(){},click(){}};},render(){groups.clear();hooks.BDView.prototype.renderTabs.call(this,app);}};
   const app={createDiv:()=>({createSpan(){},createDiv:()=>({createSpan(){}})})};view.render();
-  assert.equal(groups.get('bd-workflow-tabs').items.length,5);assert.equal(groups.get('bd-context-tabs').items.length,2);
+  assert.equal(groups.get('bd-workflow-tabs').items.length,3);assert.equal(groups.get('bd-context-tabs').items.length,2);
   groups.get('bd-workflow-tabs').select('publish');assert.equal(view.tab,'article');assert.equal(groups.get('bd-context-tabs').items.length,3);assert.equal(focus,'.bd-workflow-tabs .is-active');
   groups.get('bd-context-tabs').select('x');groups.get('bd-workflow-tabs').select('create');assert.equal(view.tab,'cover');
   groups.get('bd-context-tabs').select('figure');groups.get('bd-workflow-tabs').select('publish');assert.equal(view.tab,'x');
@@ -384,6 +384,12 @@ test('template dialogs preserve the host keyboard scope when opened for covers o
 });
 
 
+test('an empty cover title renders a no-text prompt instead of an empty headline',()=>{
+  const {EXTRA_TEMPLATES}=require('../src/templates/catalog.js');
+  const template=EXTRA_TEMPLATES.find(item=>item.coverReady);
+  const prompt=hooks.renderTemplatePrompt(template,{platform:'custom',customW:1600,customH:640,textLevel:'title'},'','A quiet scene');
+  assert.ok(prompt.includes('Do not render any text'));assert.ok(!prompt.includes('「」'));assert.ok(!prompt.includes('null'));
+});
 test('new article recipes render chosen dimensions and keep cover titles out of body illustrations',()=>{
   const {EXTRA_TEMPLATES}=require('../src/templates/catalog.js');
   assert.equal(EXTRA_TEMPLATES.length,65);

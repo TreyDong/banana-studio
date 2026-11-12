@@ -411,7 +411,7 @@ function renderFigureRecipe(recipe, figure) {
   return '\nSelected visual template: ' + recipe.name + '\n' + recipe.imagePrompt.replace(/\{(concept|title|width|height|ratio|text_rule)\}/g, (_, key) => String(values[key])) + '\nApply this template to the palette, drawing technique and visual language. The article-body scene, insertion purpose and short-label rules take priority over any cover headline or fixed cover layout in the template. The selected template palette and technique take priority over incompatible styling in an older scene.';
 }
 function templateTextRule(st, title, template, sub = '') {
-  if (st.textLevel === 'none') return 'Do not render any text, letters, numbers, captions or signatures.';
+  if (st.textLevel === 'none' || !String(title || '').trim()) return 'Do not render any text, letters, numbers, captions or signatures.';
   let rule;
   if (template?.titleTreatment === 'adaptive') rule = 'Render only this exact complete canvas text: 「' + title + '」. Choose legible typography, color, placement and semantic line breaks to suit the creative brief and user request. Preserve every word and punctuation without shortening or adding other text.';
   else if (template?.titleTreatment === 'scene-integrated') {
@@ -435,7 +435,7 @@ function templatePlanRequest(template, st, title, content, previous, requirement
   const p = coverFormat(st);
   return '模板构思规则：\n' + template.planningPrompt + '\n\n模板视觉规则：\n' + template.imagePrompt +
     '\n\n当前任务：本轮第 ' + candidateIndex + ' / ' + candidateCount + ' 张。只设计当前这一张的一个完整场景，多张数量由程序队列控制。即使用户要求两张、多张或多个方案，idea 和 scene 也只能包含当前单张方案，禁止把两张拼在一起，禁止输出 Cover 1 / Cover 2 或并列场景。' +
-    '\n文章原标题（仅供理解文章内容，不要直接照搬为图面文字）：' + title +
+    (title ? '\n文章原标题（仅供理解文章内容，不要直接照搬为图面文字）：' + title : '') +
     '\n画幅：' + p.w + ' × ' + p.h + ' px，比例 ' + ratioLabel(p.w, p.h) + '。图面文字的排版由程序按模板另行给定，scene 里不要安排标题文字。' +
     coverTextRequirement(st) +
     (requirements ? '\n用户本次要求（必须保留，优先于排除清单）：' + requirements : '') +
@@ -696,7 +696,9 @@ function buildCoverPrompt(st, headline, digest, moduleTexts, sub = '', articleTi
     '笔触（' + ren.name + '）：' + ren.note,
     '情绪（' + mood.name + '）：' + mood.note,
   ];
-  if (st.textLevel === 'title') {
+  if (!String(headline || '').trim()) {
+    lines.push('文字：画面中不出现任何文字。');
+  } else if (st.textLevel === 'title') {
     lines.push('文字：画面中必须清晰渲染图面主文案「' + headline + '」。这是为封面重新提炼的文字，不是文章标题；字体现代无衬线、层级突出、不得变形或缺字。');
   } else if (st.textLevel === 'title-sub') {
     lines.push('文字：图面主文案「' + headline + '」' + (sub ? ' + 图面副文案「' + sub + '」' : '') + '，主次分明，中文排版规范。这是为封面重新提炼的文字，不是文章标题。');
@@ -1109,15 +1111,33 @@ class BDView extends ItemView {
     const card = overlay.createDiv('bd-generation-card'), visual = card.createDiv({ cls: 'bd-generation-visual', attr: { 'aria-hidden': 'true' } });
     const sheet = visual.createDiv('bd-generation-sheet'); this.addIcon(sheet, job.kind === 'plan' ? 'list-ordered' : 'image'); sheet.createDiv('bd-generation-sweep');
     const dots = visual.createDiv('bd-generation-dots'); for (let i = 0; i < 3; i++) dots.createSpan();
-    const title = stopping ? t('正在停止…') : job.kind === 'plan' ? t('正在生成配图计划') : job.kind === 'cover' ? ([t('正在阅读文章，构思视觉方向…'), t('正在构思新的视觉方向…')].includes(this.progress) ? t('正在构思封面') : this.progress === t('正在排版并保存封面…') ? t('正在排版封面') : t('正在生成封面')) : t('正在生成配图');
+    if (job.kind === 'cover') {
+      /* 阶段文字随时间推进：构思 → 有想法 → 开始设计 → 生成中，不再一次列出全部阶段。 */
+      const steps = [t('正在构思'), t('已经有想法了'), t('开始设计'), t('生成中')];
+      const index = this.coverStageIndex(job);
+      card.createEl('h3', { text: stopping ? t('正在停止…') : steps[index] });
+      if (!stopping) {
+        const slot = this.coverBatchSlot;
+        const hint = slot ? t('第 ') + slot.index + ' / ' + this.coverBatch.length + t(' 张 · 已完成 ') + this.coverBatch.filter(c => c.status === 'done').length + t(' 张') : this.progress;
+        if (hint) card.createEl('p', { text: hint });
+      }
+      return;
+    }
+    const title = stopping ? t('正在停止…') : job.kind === 'plan' ? t('正在生成配图计划') : t('正在生成配图');
     card.createEl('h3', { text: title });
     if (!stopping) {
-      const slot = job.kind === 'cover' ? this.coverBatchSlot : null;
       const figures = job.kind === 'figures' ? (job.figures || this.agentFigureItems()) : [];
       const running = figures.findIndex(f => f.status === 'running');
-      const hint = slot ? t('第 ') + slot.index + ' / ' + this.coverBatch.length + t(' 张 · 已完成 ') + this.coverBatch.filter(c => c.status === 'done').length + t(' 张') : running >= 0 ? t('第 ') + (running + 1) + ' / ' + figures.length + t(' 张 · 已完成 ') + figures.filter(f => f.status === 'done' && f.vaultPath).length + t(' 张') : this.progress;
+      const hint = running >= 0 ? t('第 ') + (running + 1) + ' / ' + figures.length + t(' 张 · 已完成 ') + figures.filter(f => f.status === 'done' && f.vaultPath).length + t(' 张') : this.progress;
       if (hint) card.createEl('p', { text: hint });
     }
+  }
+  coverStageIndex(job) {
+    const order = ['think', 'idea', 'design', 'render'];
+    const phase = order.includes(job.coverPhase) ? job.coverPhase
+      : [t('正在阅读文章，构思视觉方向…'), t('正在构思新的视觉方向…')].includes(this.progress) ? 'think'
+      : this.progress ? 'render' : 'think';
+    return order.indexOf(phase);
   }
   pickArticle() { if (!this.busy && !this.coverChatBusy) new ArticlePicker(this.app, f => this.useArticle(f, true, true), f => this.plugin.articleAllowed(f, true)).open(); }
   codexBin() { return findCodex(this.plugin.settings.codexPath); }
@@ -1324,11 +1344,34 @@ class BDView extends ItemView {
     const reset = this.button(head, t('新建封面'), () => this.newCover(), 'bd-btn bd-cover-new', 'plus'); reset.setAttribute('aria-label', t('新建封面'));
     const messages = chat.createDiv('bd-cover-messages'); messages.setAttribute('role', 'log'); messages.setAttribute('aria-live', 'polite');
     if (!this.coverChat.length) messages.createDiv({ cls: 'bd-cover-chat-empty', text: t('在下面描述想要的封面；风格、模型和张数都在「任务配置」里调整。') });
+    let lastAi = null;
     for (const message of this.coverChat) {
+      if (message.pending) {
+        /* 生成中和重试中的回复带跳动圆点，说明这一条还没结束。 */
+        const row = messages.createDiv({ cls: 'bd-cover-message is-ai is-pending' });
+        row.createSpan({ cls: 'bd-cover-message-text', text: message.text });
+        const dots = row.createSpan({ cls: 'bd-cover-dots', attr: { 'aria-hidden': 'true' } });
+        for (let i = 0; i < 3; i++) dots.createSpan();
+        lastAi = row;
+        continue;
+      }
       const row = messages.createDiv({ cls: 'bd-cover-message ' + (message.role === 'user' ? 'is-user' : 'is-ai'), text: message.text });
       if (message.templateName && message.role === 'user') row.createDiv({ cls: 'bd-cover-message-meta', text: message.templateName });
+      if (message.role === 'ai') lastAi = row;
+    }
+    /* 失败信息留在对话里，重试键跟在最后一条回复后面。 */
+    const failedSlots = (this.coverBatch || []).filter(slot => ['error', 'stopped'].includes(slot.status)).length;
+    if (failedSlots && !this.busy && !this.coverChatBusy && this.activeFile()) {
+      const host = lastAi || messages.createDiv({ cls: 'bd-cover-message is-ai' });
+      const retry = this.button(host, t('重试失败项') + ' · ' + failedSlots + t(' 张'), () => this.retryCoverBatch(), 'bd-btn bd-cover-retry', 'refresh-cw');
+      retry.setAttribute('aria-label', t('重新生成失败的封面'));
     }
     const compose = panel.createDiv('bd-cover-compose');
+    if (!this.activeFile()) {
+      const hint = compose.createDiv('bd-cover-hint');
+      hint.createSpan({ text: t('先选一篇稿件，才能生成封面。') });
+      this.button(hint, t('选择文章'), () => this.pickArticle(), 'bd-btn', 'file-text');
+    }
     if (this.refs.length) {
       const refs = compose.createDiv('bd-cover-ref-thumbs');
       for (const file of this.refs) { const remove = this.button(refs, '', () => { this.refs = this.refs.filter(f => f !== file); this.remember(); this.renderBody(); }, 'bd-cover-ref-thumb'); remove.setAttribute('aria-label', t('移除参考图：') + file.basename); remove.title = t('移除参考图：') + file.basename; remove.createEl('img', { attr: { src: this.resourceOf(file.path), alt: file.basename } }); remove.disabled = this.busy || this.coverChatBusy; }
@@ -1343,18 +1386,9 @@ class BDView extends ItemView {
     const ref = this.button(attachments, '', () => this.pickLocalReferences(), 'bd-btn bd-icon-button', 'paperclip'); ref.setAttribute('aria-label', t('从电脑添加参考图')); ref.title = t('从电脑添加参考图');
     const source = this.button(attachments, '', anchor => this.openReferenceMenu(anchor), 'bd-btn bd-icon-button bd-attachment-source', 'chevron-down'); source.setAttribute('aria-label', t('其他参考图来源')); source.setAttribute('aria-haspopup', 'menu'); source.title = t('其他参考图来源');
     const config = this.button(tools, t('任务配置'), () => new CoverConfigModal(this).open(), 'bd-btn bd-cover-config', 'sliders-horizontal'); config.setAttribute('aria-label', t('任务配置') + '：' + this.coverConfigSummary()); config.title = this.coverConfigSummary();
-    actions.createSpan({ cls: 'bd-cover-scope', text: this.cover ? t('当前封面') : t('新封面') });
     const stop = this.renderStopButton(actions, 'bd-btn bd-primary bd-cover-send');
     if (!stop) { const send = this.button(actions, '', () => this.submitCoverChat(), 'bd-btn bd-primary bd-cover-send bd-cover-send-icon', 'arrow-up'); send.setAttribute('aria-label', this.cover ? t('修改封面') : t('生成封面')); send.title = t('Enter 发送，Shift+Enter 换行'); send.disabled = this.busy || this.coverChatBusy || !this.activeFile(); }
     for (const button of [ref, source, config]) button.disabled = this.busy || this.coverChatBusy || !this.activeFile();
-    const status = this.error || this.progress;
-    if (status) { const prefix = this.coverBatchSlot ? t('第 ') + this.coverBatchSlot.index + ' / ' + this.coverBatch.length + t(' 张 · ') : ''; const message = compose.createDiv({ cls: 'bd-status' + (this.error ? ' is-error' : ''), text: prefix + status }); message.setAttribute('role', 'status'); }
-    const failedSlots = (this.coverBatch || []).filter(slot => ['error', 'stopped'].includes(slot.status)).length;
-    if (failedSlots && !this.busy && !this.coverChatBusy && this.activeFile()) {
-      const row = compose.createDiv('bd-cover-retry-row');
-      const retry = this.button(row, t('重试失败项') + ' · ' + failedSlots + t(' 张'), () => this.retryCoverBatch(), 'bd-btn bd-cover-retry', 'refresh-cw');
-      retry.setAttribute('aria-label', t('重新生成失败的封面'));
-    }
     requestAnimationFrame(() => { if (messages.isConnected) messages.scrollTop = messages.scrollHeight; });
   }
   async submitCoverChat() {
@@ -1427,7 +1461,7 @@ class BDView extends ItemView {
     const job = this.beginTask('cover'), signal = job.controller.signal;
     this.coverChatBusy = true; this.error = '';
     const pending = { role: 'ai', text: slots === batch ? t('正在设计…') : t('正在重试失败项…'), pending: true }; this.coverChat.push(pending);
-    this.brief = text; this.briefSource = 'manual'; this.render();
+    this.brief = text; this.briefSource = 'manual'; job.coverPhase = 'think'; this.render();
     try {
       let choices = null;
       if (this.templateMode() === 'auto') {
@@ -1455,7 +1489,9 @@ class BDView extends ItemView {
             const editText = source?.coverText?.headline ? source.coverText : this.coverText;
             if (template) { this.promptDraft = 'Edit the provided current cover. Preserve its main subject and existing composition unless the user asks to change them.\nUser request: ' + text + (count > 1 ? '\nCreate a distinct alternative for candidate ' + slot.index + ' of ' + count + '. Vary secondary composition details while respecting the original subject and the user request.' : '') + '\nVisual recipe:\n' + renderTemplatePrompt(template, this.state, displayTitle(editText, this.title), 'Keep the subject of the current cover unless requested otherwise.', editText?.sub || ''); this.promptSource = 'ai'; this.promptContext = this.currentPromptContext(); }
           } else { await this.ideate(job); checkStopped(signal); if (this.error) throw new Error(this.error); }
+          job.coverPhase = 'idea';
           const before = this.covers.length;
+          job.coverPhase = 'design';
           await this.generate(job);
           if (this.covers.length > before) { const image = this.covers.at(-1); image.batchId = slot.batchId; image.candidateIndex = slot.index; image.templateReason = slot.templateReason || ''; slot.vaultPath = image.vaultPath; slot.status = 'done'; }
           checkStopped(signal); if (this.error) throw new Error(this.error);
@@ -1627,7 +1663,7 @@ class BDView extends ItemView {
     this.wechatProgress = ''; this.wechatError = ''; this.xProgress = ''; this.xError = '';
   }
   navigateTab(key, group = 'context') {
-    if (this.busy || this.coverChatBusy || this.insertingFigures || this.operation || !['cover', 'figure', 'article', 'wechat', 'x', 'xiaohongshu', 'calendar', 'platforms', 'polish'].includes(key)) return false;
+    if (this.busy || this.coverChatBusy || this.insertingFigures || this.operation || !['cover', 'figure', 'article', 'wechat', 'x', 'xiaohongshu', 'polish'].includes(key)) return false;
     if (this.variantDirty) { const save = this.saveVariantDraft; return save().then(() => this.navigateTab(key, group)); }
     this.tab = key;
     if (['cover', 'figure'].includes(key)) this.createTab = key; else if (['article', 'wechat', 'x', 'xiaohongshu'].includes(key)) this.publishTab = key;
@@ -1654,8 +1690,8 @@ class BDView extends ItemView {
   }
   renderTabs(app) {
     const creating = ['cover', 'figure'].includes(this.tab), channels = this.plugin?.settings?.channels;
-    const workflow = creating ? 'create' : this.tab === 'polish' ? 'polish' : ['calendar', 'platforms'].includes(this.tab) ? this.tab : 'publish';
-    const items = [['create', t('制作配图'), 'images'], ['polish', t('润色'), 'wand-2'], ['publish', t('预览发布'), 'book-open-check'], ['calendar', t('发布日历'), 'calendar-days'], ['platforms', t('平台与账号'), 'users']];
+    const workflow = creating ? 'create' : this.tab === 'polish' ? 'polish' : 'publish';
+    const items = [['create', t('制作配图'), 'images'], ['polish', t('润色'), 'wand-2'], ['publish', t('预览发布'), 'book-open-check']];
     if (this.tab === 'polish') {
       /* 「当前文章」和顶部页签同一行，和「润色」并排。 */
       const row = app.createDiv('bd-workflow-row');
@@ -1666,13 +1702,12 @@ class BDView extends ItemView {
       return;
     }
     this.renderTabGroup(app, items, workflow, 'bd-workflow-tabs', t('工作台导航'), section => this.navigateTab(section === 'create' ? this.createTab : section === 'publish' ? this.publishTab : section, 'workflow'));
-    if (['calendar', 'platforms'].includes(this.tab)) return;
     const context = app.createDiv('bd-context-nav');
     /* 制作配图里的「封面 / 正文配图」本身已经说明类型，不再加一行标签。 */
     if (!creating) context.createSpan({ cls: 'bd-context-label', text: t('预览版本') });
     const platforms = [['article', t('原文'), 'file-text'], ...publicationModel.PLATFORMS.filter(platform => channels ? channels.enabled[platform.id] : platform.id !== 'xiaohongshu').map(platform => [platform.id, t(platform.name), platform.icon])];
     this.renderTabGroup(context, creating ? [['cover', t('封面'), 'image'], ['figure', t('正文配图'), 'images']] : platforms, this.tab, 'bd-context-tabs', creating ? t('配图类型') : t('预览版本'), key => this.navigateTab(key));
-    if (!creating && channels && !Object.values(channels.enabled).some(Boolean)) this.button(context, t('选择使用的平台'), () => this.navigateTab('platforms'));
+    if (!creating && channels && !Object.values(channels.enabled).some(Boolean)) context.createDiv({ cls: 'bd-publication-muted', text: t('还没有启用任何发布平台。') });
     const current = context.createDiv('bd-context-current');
     current.createSpan({ cls: 'bd-context-label', text: t('当前文章') });
     this.renderArticlePicker(current);
@@ -1682,8 +1717,6 @@ class BDView extends ItemView {
     if (this.variantDirty) return this.saveVariantDraft().then(() => this.renderBody()).catch(error => new Notice(error.message));
     this.disposeArtboard();
     const B = this.bodyEl; B.empty(); B.className = 'bd-body';
-    if (this.tab === 'calendar') { publicationUI.renderCalendar(this, B); return; }
-    if (this.tab === 'platforms') { publicationUI.renderPlatforms(this, B); return; }
     if (this.tab === 'polish') { this.renderPolishTab(B); return; }
     if (['wechat', 'x', 'xiaohongshu'].includes(this.tab) && this.plugin.settings.channels && !this.plugin.settings.channels.enabled[this.tab]) { this.tab = 'article'; this.render(); return; }
     if (this.tab === 'xiaohongshu') { publicationUI.renderXiaohongshu(this, B).catch(error => { if (B.isConnected) B.createDiv({ cls: 'bd-error', text: error.message }); }); return; }
@@ -2876,10 +2909,6 @@ class BDView extends ItemView {
         tweet.postedId = posted.id; previousId = posted.id; this.remember(); this.renderBody();
         if (index < total - 1) await xSleep(800, signal);
       }
-      if (account && this.xTweets.every(tweet => tweet.postedId)) {
-        const first = this.xTweets[0].postedId;
-        await this.plugin.recordPublication({ platform: 'x', accountId: account.id, title: this.title || f?.basename || 'X', sourcePath: f?.path || '', publishedAt: new Date().toISOString(), remoteId: first, url: 'https://x.com/i/status/' + first, origin: 'api' });
-      }
       this.xProgress = t('已发布');
       new Notice(t('推文串已发布，可在 X 上查看'), 6000);
     } catch (e) {
@@ -2997,7 +3026,7 @@ class BDView extends ItemView {
     column.createDiv({ cls: 'bd-wechat-stage-note', text: t('预览按 X 卡片示意，实际样式以 X 客户端为准。') });
   }
   async ideate(parentJob = null) {
-    if (this.busy || (!parentJob && this.coverChatBusy) || !this.activeFile()) return; const job = parentJob || this.beginTask('cover'), signal = job.controller.signal; this.busy = true; this.error = ''; this.progress = t('正在阅读文章，构思视觉方向…'); this.render();
+    if (this.busy || (!parentJob && this.coverChatBusy) || !this.activeFile()) return; const job = parentJob || this.beginTask('cover'), signal = job.controller.signal; this.busy = true; this.error = ''; this.progress = t('正在阅读文章，构思视觉方向…'); job.coverPhase = 'think'; this.render();
     try {
       const f = this.activeFile(); const content = stripFrontmatter(await this.app.vault.cachedRead(f)); checkStopped(signal);
       if (this.templateMode() === 'auto' && !job.autoTemplatesResolved) {
@@ -3020,7 +3049,7 @@ class BDView extends ItemView {
         this.brief = plan.idea; this.scene = plan.scene; this.coverText = plan.coverText;
         this.promptDraft = renderTemplatePrompt(template, this.state, plan.coverText.headline, plan.scene, plan.coverText.sub); this.promptSource = 'ai'; this.promptContext = this.currentPromptContext();
       } else { const raw = await this.plugin.text(job.connections.text, DIRECTION_SYSTEM, directionRequest(this.state, content, this.moduleTexts(), recentDirections(this.covers, this.brief), this.title.trim()) + (this.briefSource === 'manual' && this.brief ? '\n用户本次设计要求（优先遵守）：' + this.brief : ''), signal); checkStopped(signal); const direction = parseDirectionBrief(raw); this.brief = direction.direction; this.coverText = normalizeCoverText(direction.coverText, this.title.trim(), this.state); }
-      this.briefSource = 'ai';
+      this.briefSource = 'ai'; job.coverPhase = 'idea';
     } catch (e) { if (wasStopped(e, signal)) { job.controller.abort(); this.error = ''; } else this.error = t('构思失败：') + e.message; }
     finally { this.busy = false; this.progress = ''; if (!parentJob) this.finishTask(job); this.remember(); this.render(); }
   }
@@ -3028,7 +3057,7 @@ class BDView extends ItemView {
     const file = this.activeFile(); const mode = this.tab;
     if (!file || this.busy || (!parentJob && this.coverChatBusy) || !['cover','figure'].includes(mode)) return;
     if (mode === 'figure' && this.figureMode === 'agent') return this.generateAgentFigures();
-    if (mode === 'cover' && !this.title.trim()) { this.error = t('请填写封面标题'); this.renderBody(); return; }
+    // 标题可以为空：空标题只是不往提示词里带文章标题，不影响生成。
     if (mode === 'cover' && !this.canGenerateCover()) { this.error = this.isLocalTemplate() ? t('请填写封面大字、卡片内容，并检查尺寸') : t('请先构思，检查当前尺寸与提示词后再生成'); this.renderBody(); return; }
     // Snapshot every generation input; tab/file changes cannot mutate a running job.
     const outputTask = mode === 'cover' ? this.coverOutputTask || createOutputTask(this.plugin.settings, file, '封面') : createOutputTask(this.plugin.settings, file, '配图');
@@ -3070,7 +3099,7 @@ class BDView extends ItemView {
           snapshot.briefSource = 'ai'; this.brief = snapshot.brief; this.briefSource = 'ai'; this.coverText = snapshot.coverText; this.remember();
         }
         const prompt = buildCoverRequest(snapshot, content);
-        this.progress = t('正在生成封面，通常需要几分钟…'); this.renderBody();
+        this.progress = t('正在生成封面，通常需要几分钟…'); job.coverPhase = 'render'; this.renderBody();
         const { buf } = await this.plugin.image(snapshot.imageConnection, prompt, snapshot.referenceUrls, plat.w, plat.h, signal); checkStopped(signal);
         this.progress = t('正在按平台尺寸保存…'); this.renderBody();
         const png = await sizeImage(buf, plat.w, plat.h); checkStopped(signal);
@@ -3874,17 +3903,18 @@ module.exports = class BananaStudioPlugin extends Plugin {
     const seededPolish = !Array.isArray(savedSettings.polish?.roles) || !savedSettings.polish.roles.length;
     if (seededPolish) this.settings.polish.roles = this.polish.defaultRoles();
     const migratedChannels = publicationModel.migrateChannels(this.settings);
-    const migratedPublicationFolders = publicationModel.migrateAccountPublicationFolders(this.settings.channels);
+    // 发布日历与账号管理已移除，旧配置里的发布文件夹不再使用。
+    const droppedPublicationFolders = this.dropPublicationFolders(this.settings.channels);
     if (migratedChannels && savedSettings.publishRelay) { const account = publicationModel.activeAccount(this.settings.channels, 'wechat'); if (account) account.config.publishRelay = publicationModel.clone(savedSettings.publishRelay); }
     this.publicationPath = this.app.vault.configDir + '/plugins/' + this.manifest.id + '/publication.json';
-    this.publication = await this.app.vault.adapter.exists(this.publicationPath) ? JSON.parse(await this.app.vault.adapter.read(this.publicationPath)) : { version: 1, variants: [], records: [] };
-    if (this.publication.version !== 1 || !Array.isArray(this.publication.variants) || !Array.isArray(this.publication.records)) throw new Error('发布记录格式无法识别，原文件未修改');
+    this.publication = await this.app.vault.adapter.exists(this.publicationPath) ? JSON.parse(await this.app.vault.adapter.read(this.publicationPath)) : { version: 1, variants: [] };
+    if (this.publication.version !== 1 || !Array.isArray(this.publication.variants)) throw new Error('发布记录格式无法识别，原文件未修改');
     configureLocale(() => this.settings.language, () => typeof getLanguage === 'function' ? getLanguage() : globalThis.localStorage?.getItem('language') || globalThis.document?.documentElement?.lang || globalThis.navigator?.language || 'en');
     if (!savedSettings.outputFolder) this.settings.outputFolder = DEFAULT_OUTPUT_FOLDER;
     this.settings.taskFolderPattern ||= DEFAULT_TASK_PATTERN; this.settings.imageNamePattern ||= DEFAULT_IMAGE_PATTERN;
     const migratedServices = this.services.migrate(this.settings);
     await ensureFolder(this.app.vault.adapter, imageFolder(this.settings.outputFolder, DEFAULT_OUTPUT_FOLDER));
-    if (migratedOutput || migratedPublicationFolders || migratedChannels || migratedServices || seededPolish || !savedSettings.outputFolder || !savedSettings.taskFolderPattern || !savedSettings.imageNamePattern) await this.saveSettings();
+    if (migratedOutput || droppedPublicationFolders || migratedChannels || migratedServices || seededPolish || !savedSettings.outputFolder || !savedSettings.taskFolderPattern || !savedSettings.imageNamePattern) await this.saveSettings();
     this.view = null;
 
     this.registerView(VIEW, (leaf) => {
@@ -3896,7 +3926,6 @@ module.exports = class BananaStudioPlugin extends Plugin {
     this.openCommand = this.addCommand(this.openCommand) || this.openCommand;
     this.settingsTab = new BDSettingTab(this.app, this);
     this.addSettingTab(this.settingsTab);
-    this.addCommand({ id: 'publication-calendar', name: t('打开发布日历'), callback: async () => { await this.activateView(); this.view.navigateTab('calendar', 'workflow'); } });
 
     const trackArticle = file => { if (this.articleAllowed(file)) this.lastMarkdownPath = file.path; };
     trackArticle(this.app.workspace.getActiveFile?.());
@@ -3915,12 +3944,19 @@ module.exports = class BananaStudioPlugin extends Plugin {
       if (this.view?.articlePath === oldPath) { this.view.articlePath = file.path; this.view.render(); }
       this.saveSettings().catch(console.error);
     }));
-    this.refreshCalendarIndex();
-    this.watchPublicationFolders();
-    this.publicationPropertiesStopped = false;
-    this.app.workspace.onLayoutReady?.(() => { this.fillPublicationFolders().catch(console.error); });
   }
-  onunload() { this.publicationPropertiesStopped = true; clearTimeout(this.calendarRefreshTimer); this.view?.stopTasks(false); shutdownCodex(); if (this.view) { this.view.remember(); clearTimeout(this.view.saveTimer); this.saveSettings().catch(console.error); } }
+  onunload() { this.view?.stopTasks(false); shutdownCodex(); if (this.view) { this.view.remember(); clearTimeout(this.view.saveTimer); this.saveSettings().catch(console.error); } }
+  // 日历与账号管理已删除，旧配置里的发布文件夹和绑定不再保留。
+  dropPublicationFolders(channels) {
+    if (!channels) return false;
+    let changed = false;
+    if (channels.calendarSources?.length) { delete channels.calendarSources; changed = true; }
+    for (const account of channels.accounts || []) {
+      if (account.publicationFolder !== undefined) { delete account.publicationFolder; changed = true; }
+      if (account.publicationSourceId !== undefined) { delete account.publicationSourceId; changed = true; }
+    }
+    return changed;
+  }
 
   articleAllowed(file, explicit = false) {
     const fm=file?(this.app.plugins?.plugins?.['trey-media']?.meta?.(file)||this.app.metadataCache?.getFileCache(file)?.frontmatter||{}):{};
@@ -3954,145 +3990,6 @@ module.exports = class BananaStudioPlugin extends Plugin {
     if (!this.settings.channels.enabled[id] || !account) throw new Error(t('先启用平台并添加账号'));
     return account;
   }
-  refreshCalendarIndex() {
-    const channels = this.settings.channels, sources = channels?.calendarSources || [];
-    // Only inspect metadata for Markdown within explicitly selected folders.
-    const files = sources.length ? this.app.vault.getMarkdownFiles().filter(file => !workspace.privatePath(file.path, this.workspace) && sources.some(source => publicationModel.inCalendarFolder(file.path, source))).map(file => ({ path: file.path, basename: file.basename, frontmatter: this.app.metadataCache?.getFileCache(file)?.frontmatter })) : [];
-    this.calendarIndex = publicationModel.calendarFromMarkdown(files, sources, channels || { accounts: [] });
-    for (const path of this.publicationPropertyIssues?.keys() || []) if (!sources.some(source => publicationModel.inCalendarFolder(path, source)) || !this.app.vault.getAbstractFileByPath(path)) this.publicationPropertyIssues.delete(path);
-    this.calendarIndex.issues.push(...(this.publicationPropertyIssues?.values() || []));
-    return this.calendarIndex;
-  }
-  scheduleCalendarRefresh() {
-    clearTimeout(this.calendarRefreshTimer);
-    this.calendarRefreshTimer = setTimeout(() => {
-      this.refreshCalendarIndex();
-      if (this.view?.tab === 'calendar' && !this.view.viewClosed) this.view.renderBody();
-    }, 120);
-  }
-  watchPublicationFolders() {
-    const watched = file => (this.settings.channels?.calendarSources || []).some(source => file?.path === source.folder || publicationModel.inCalendarFolder(file?.path || '', source));
-    const changed = file => {
-      if (watched(file)) {
-        this.scheduleCalendarRefresh();
-        if (file?.extension === 'md') this.queuePublicationProperties(file);
-      }
-    };
-    if (this.app.metadataCache?.on) {
-      this.registerEvent(this.app.metadataCache.on('changed', changed));
-      this.registerEvent(this.app.metadataCache.on('resolved', () => { if (this.settings.channels?.calendarSources?.length) { this.scheduleCalendarRefresh(); this.fillPublicationFolders().catch(console.error); } }));
-    }
-    for (const event of ['create', 'modify', 'delete']) this.registerEvent(this.app.vault.on(event, changed));
-    this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
-      const sources = this.settings.channels?.calendarSources || [], relevant = watched(file) || watched({ path: oldPath });
-      let moved = false;
-      if (Array.isArray(file.children)) {
-        for (const source of sources) if (source.folder === oldPath || source.folder.startsWith(oldPath + '/')) { source.folder = file.path + source.folder.slice(oldPath.length); moved = true; }
-        if (moved) this.saveSettings().catch(console.error);
-      }
-      if (relevant || moved) { this.scheduleCalendarRefresh(); if (file.extension === 'md') this.queuePublicationProperties(file); else if (Array.isArray(file.children)) this.fillPublicationFolders(file.path).catch(console.error); }
-    }));
-  }
-  accountPublicationSource(id) {
-    const channels = this.settings.channels, account = channels.accounts.find(item => item.id === id);
-    if (!account || account.publicationFolder === '') return null;
-    const sources = channels.calendarSources || [];
-    return sources.find(source => source.id === account.publicationSourceId) || sources.find(source => source.accountId === id) || (channels.accounts.filter(item => item.platform === account.platform && !item.archived).length === 1 ? sources.find(source => source.platform === account.platform && !source.accountId) : null);
-  }
-  queuePublicationProperties(file) {
-    const notes=this.workspace?.notesDir||workspace.DEFAULTS.notesDir;
-    if(file?.path===notes||file?.path?.startsWith(notes+'/'))return Promise.resolve(false);
-    if (this.publicationPropertiesStopped || file?.extension !== 'md' || workspace.privatePath(file.path, this.workspace) || !this.app.fileManager?.processFrontMatter) return Promise.resolve(false);
-    const path = file.path;
-    this.publicationPropertyTasks ||= new Map(); this.publicationPropertyIssues ||= new Map();
-    if (this.publicationPropertyTasks.has(path)) return this.publicationPropertyTasks.get(path);
-    const run = async () => {
-      if (this.publicationPropertiesStopped || !this.app.vault.getAbstractFileByPath(file.path)) return false;
-      const sources = this.settings.channels.calendarSources || [], frontmatter = this.app.metadataCache?.getFileCache(file)?.frontmatter || {};
-      const owner = publicationModel.publicationPropertyOwner(file, frontmatter, sources, this.settings.channels);
-      if (!owner.account) {
-        if (owner.issue) this.publicationPropertyIssues.set(path, file.path + '：' + owner.issue); else this.publicationPropertyIssues.delete(path);
-        return false;
-      }
-      const patch = publicationModel.publicationPropertyPatch(frontmatter, file, owner.source, owner.account);
-      if (!Object.keys(patch).length) { this.publicationPropertyIssues.delete(path); return false; }
-      let changed = false;
-      await this.app.fileManager.processFrontMatter(file, current => {
-        // Resolve ownership and missing fields again inside the atomic write callback.
-        const fresh = publicationModel.publicationPropertyOwner(file, current, this.settings.channels.calendarSources || [], this.settings.channels);
-        if (!fresh.account) throw new Error(fresh.issue || '发布文件夹配置已改变');
-        const missing = publicationModel.publicationPropertyPatch(current, file, fresh.source, fresh.account);
-        publicationModel.applyPropertyPatch(current, missing); changed = Object.keys(missing).length > 0;
-      });
-      this.publicationPropertyIssues.delete(path); this.scheduleCalendarRefresh(); return changed;
-    };
-    const task = (this.publicationPropertyTail || Promise.resolve()).then(run).catch(() => {
-      if (this.app.vault.getAbstractFileByPath(file.path)) this.publicationPropertyIssues.set(path, file.path + '：自动补齐失败，请检查属性格式和文件写入权限');
-      this.scheduleCalendarRefresh(); return false;
-    }).finally(() => { this.publicationPropertyTasks.delete(path); });
-    this.publicationPropertyTasks.set(path, task); this.publicationPropertyTail = task; return task;
-  }
-  async fillPublicationFolders(folder) {
-    if (this.publicationPropertiesStopped || !this.app.fileManager?.processFrontMatter) return;
-    const sources = this.settings.channels?.calendarSources || [];
-    const files = sources.length ? this.app.vault.getMarkdownFiles().filter(file => !workspace.privatePath(file.path, this.workspace) && (!folder || file.path.startsWith(folder + '/')) && sources.some(source => source.autoProperties !== false && publicationModel.inCalendarFolder(file.path, source))) : [];
-    await Promise.all(files.map(file => this.queuePublicationProperties(file)));
-    this.refreshCalendarIndex();
-  }
-  async savePublicationAccount({ id, platform, name, folder = '', sourceId }) {
-    name = String(name || '').trim();
-    folder = String(folder || '');
-    if (!name) throw new Error(t('请填写账号名称'));
-    if (!publicationModel.platform(platform)) throw new Error(t('请选择平台'));
-    const account = id && this.settings.channels.accounts.find(item => item.id === id && item.platform === platform && !item.archived);
-    if (id && !account) throw new Error(t('请选择有效的发布账号'));
-    if (this.settings.channels.accounts.some(item => item.platform === platform && item.id !== id && !item.archived && item.name === name)) throw new Error(t('这个平台已有同名账号'));
-    const previousSource = sourceId ? this.settings.channels.calendarSources?.find(source => source.id === sourceId && source.platform === platform && (!source.accountId || source.accountId === id)) : id ? this.accountPublicationSource(id) : null;
-    const normalized = folder.trim() ? publicationModel.normalizeCalendarSource({ ...previousSource, platform, accountId: id || 'pending', folder, autoProperties: true }) : null;
-    if (normalized) {
-      if (workspace.privatePath(normalized.folder, this.workspace)) throw new Error('不能选择日记、公司或投资目录。');
-      const conflict = this.settings.channels.calendarSources?.find(source => source.id !== previousSource?.id && source.autoProperties !== false && source.folder === normalized.folder && (source.platform !== platform || (source.accountId && source.accountId !== id)));
-      if (conflict) throw new Error(t('这个发布文件夹已绑定其他账号，请为账号选择独立文件夹'));
-      const existing = this.app.vault.getAbstractFileByPath(normalized.folder);
-      if (existing && !Array.isArray(existing.children)) throw new Error(t('发布文件夹路径已被文件占用'));
-      if (!existing) await ensureFolder(this.app.vault.adapter, normalized.folder);
-    }
-    let result;
-    await this.updateChannels(next => {
-      if (next.accounts.some(item => item.platform === platform && item.id !== id && !item.archived && item.name === name)) throw new Error(t('这个平台已有同名账号'));
-      if (normalized && next.calendarSources?.some(source => source.id !== previousSource?.id && source.autoProperties !== false && source.folder === normalized.folder && (source.platform !== platform || (source.accountId && source.accountId !== id)))) throw new Error(t('这个发布文件夹已绑定其他账号，请为账号选择独立文件夹'));
-      result = id ? next.accounts.find(item => item.id === id) : publicationModel.addAccount(next, platform, name, this.defaultPlatformConfig(platform));
-      result.name = name; result.publicationFolder = normalized?.folder || '';
-      next.calendarSources ||= [];
-      if (normalized) {
-        const source = { ...normalized, accountId: result.id };
-        const index = next.calendarSources.findIndex(item => item.id === source.id);
-        if (index < 0) next.calendarSources.push(source); else next.calendarSources[index] = source;
-        result.publicationSourceId = source.id;
-      } else if (previousSource) {
-        next.calendarSources = next.calendarSources.filter(source => source.id !== previousSource.id); result.publicationSourceId = '';
-      }
-    });
-    if (normalized) await this.fillPublicationFolders(normalized.folder);
-    return result;
-  }
-  async saveCalendarSource(input) {
-    const source = publicationModel.normalizeCalendarSource(input);
-    const folder = this.app.vault.getAbstractFileByPath(source.folder);
-    if (!folder || !Array.isArray(folder.children)) throw new Error(t('发布文件夹不存在，请先选择已有文件夹'));
-    if (source.accountId && !this.settings.channels.accounts.some(account => account.id === source.accountId && account.platform === source.platform)) throw new Error(t('请选择有效的发布账号'));
-    await this.updateChannels(next => {
-      next.calendarSources ||= [];
-      if (next.calendarSources.some(item => item.id !== source.id && item.platform === source.platform && item.accountId === source.accountId && item.folder === source.folder)) throw new Error(t('这个文件夹已在监控，请修改原有设置'));
-      const index = next.calendarSources.findIndex(item => item.id === source.id);
-      if (index < 0) next.calendarSources.push(source); else next.calendarSources[index] = source;
-    });
-    await this.fillPublicationFolders(source.folder);
-    return source;
-  }
-  async removeCalendarSource(id) {
-    await this.updateChannels(next => { next.calendarSources = (next.calendarSources || []).filter(source => source.id !== id); });
-  }
   async updateChannels(change) {
     if (this.accountConnectionBusy || this.view?.busy || this.view?.operation) throw new Error(t('当前任务进行中，结束后再切换账号'));
     const operation = async () => {
@@ -4105,7 +4002,6 @@ module.exports = class BananaStudioPlugin extends Plugin {
       }
       this.settings.channels = next;
       try { await this.saveSettings(); } catch (error) { this.settings.channels = previous; throw error; }
-      this.refreshCalendarIndex();
     };
     const result = (this.channelWrite || Promise.resolve()).then(operation);
     this.channelWrite = result.catch(() => {}); return result;
@@ -4118,9 +4014,6 @@ module.exports = class BananaStudioPlugin extends Plugin {
     };
     const result = (this.publicationWrite || Promise.resolve()).then(operation);
     this.publicationWrite = result.catch(() => {}); return result;
-  }
-  async recordPublication(input) {
-    return this.updatePublication(data => publicationModel.upsertRecord(data, this.settings.channels, input));
   }
   async savePlatformVariant(input) {
     const account = publicationModel.activeAccount(this.settings.channels, input.platform, input.accountId);
